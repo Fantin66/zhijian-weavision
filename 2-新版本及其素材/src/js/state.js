@@ -202,6 +202,43 @@ function renameProject(id,name){
   const p=state.projects.find(x=>x.id===id);
   if(p&&name){p.name=name;renderSidePanel();saveStateDebounced();}
 }
+/* K5: 拖动排序——项目和画布 */
+function reorderProjects(fromId,toId,before){
+  var from=state.projects.findIndex(p=>p.id===fromId);
+  if(from<0)return;
+  var item=state.projects.splice(from,1)[0];
+  var to=state.projects.findIndex(p=>p.id===toId);
+  if(to<0){state.projects.push(item);to=state.projects.length-1;}
+  else if(!before)to++;
+  state.projects.splice(to,0,item);
+  renderSidePanel();saveStateDebounced();
+}
+function reorderCanvases(fromId,toId,before){
+  var p=curProject();if(!p)return;
+  var from=p.canvases.findIndex(c=>c.id===fromId);
+  if(from<0)return;
+  var item=p.canvases.splice(from,1)[0];
+  var to=p.canvases.findIndex(c=>c.id===toId);
+  if(to<0){p.canvases.push(item);}
+  else if(!before)to++;
+  p.canvases.splice(to,0,item);
+  renderSidePanel();saveStateDebounced();
+}
+function moveCanvasToProject(canvasId,targetProjectId){
+  var srcP=curProject();if(!srcP)return;
+  var fromIdx=srcP.canvases.findIndex(c=>c.id===canvasId);
+  if(fromIdx<0)return;
+  var targetP=state.projects.find(p=>p.id===targetProjectId);
+  if(!targetP||targetP===srcP)return;
+  var canvas=srcP.canvases.splice(fromIdx,1)[0];
+  targetP.canvases.push(canvas);
+  /* 如果移走的是当前活动画布，切到剩余的第一个 */
+  if(state.activeCanvasId===canvasId){
+    state.activeCanvasId=srcP.canvases.length?srcP.canvases[0].id:(targetP.canvases[0]?targetP.canvases[0].id:null);
+  }
+  saveCurrentCanvas();
+  renderSidePanel();render();saveStateDebounced();syncPvDom();
+}
 function renameFile(id,name){
   const f=state.files.find(x=>x.id===id);
   if(f&&name){f.name=name;renderFileGroups();saveStateDebounced();}
@@ -312,7 +349,7 @@ function zoomAt(sx,sy,factor){
   const wy=state.camera.y+sy/state.camera.zoom;
   state.camera.zoom=nz;state.camera.x=wx-sx/nz;state.camera.y=wy-sy/nz;
   if(zoomPctEl) zoomPctEl.textContent=Math.round(nz*100)+"%";
-  render();
+  requestRender();
 }
 function fitAll(){
   const b=boundsOfItems();if(!b) return;

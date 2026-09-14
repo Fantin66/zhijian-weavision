@@ -1,14 +1,14 @@
 "use strict";
 /* ============================================================
    知见学堂 · Demo 教学项目（完整重写 V16）
-   7 张画布：总览 → 聚焦类 → 连接类 → 美观性 → 案例×2 → 现状与规划
+   8 张画布：总览 → 聚焦类 → 连接类 → 美观性 → 案例×2 → AI 功能 → 现状与规划
    每种元素类型展示一种展开机制：
    - mindNode → 就地展开详情 (E)
    - fileCard → 形变展开预览 (previewOpen)
    - 语义关系线 → 五种类型 + 线权重 + 线型
    - 跃迁 → 跨画布跳转 (jumpTo)
 ============================================================ */
-const TUTORIAL_VERSION=19;
+const TUTORIAL_VERSION=20;
 function storeBuiltinTutorBlob(id,blob){
   if(!idb)return;
   try{const tx=idb.transaction("files","readwrite");tx.objectStore("files").put(blob,id);}catch(_){}
@@ -76,7 +76,8 @@ function ensureTutorProject(){
   const c4=makeCanvas("04-美观性","logic");                   project.canvases.push(c4);
   const c5=makeCanvas("05-案例：一级市场投资分析","fishbone"); project.canvases.push(c5);
   const c6=makeCanvas("06-案例：行业研究展示","timeline");     project.canvases.push(c6);
-  const c7=makeCanvas("07-现状与规划","logic");              project.canvases.push(c7);
+  const c7=makeCanvas("07-AI 功能","logic");              project.canvases.push(c7);
+  const c8=makeCanvas("08-现状与规划","logic");              project.canvases.push(c8);
 
   /* ── 附件文件 ── */
   const conceptSvg=`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 720 420"><defs><linearGradient id="g" x1="0" x2="1" y1="0" y2="1"><stop stop-color="#eff6ff"/><stop offset="1" stop-color="#ecfdf5"/></linearGradient></defs><rect width="720" height="420" rx="32" fill="url(#g)"/><g fill="none" stroke="#8ba9e8" stroke-width="8" stroke-linecap="round"><path d="M170 210C250 100 330 105 360 210S490 320 570 210"/><path d="M170 210C250 320 330 315 360 210S490 100 570 210"/></g><circle cx="170" cy="210" r="34" fill="#2d5fd3"/><circle cx="360" cy="210" r="48" fill="#5e75d9"/><circle cx="570" cy="210" r="34" fill="#319b77"/><g fill="white" font-family="Arial, sans-serif" text-anchor="middle"><text x="170" y="218" font-size="22">织</text><text x="360" y="220" font-size="30">连接</text><text x="570" y="218" font-size="22">见</text></g><text x="360" y="354" fill="#45536f" font-size="28" font-family="Arial, sans-serif" text-anchor="middle">把线索编在一起，把重要处看清</text></svg>`;
@@ -87,7 +88,7 @@ function ensureTutorProject(){
   const ddFile=makeBuiltinFile("DD尽调-关系板模板.md","text","text/markdown;charset=utf-8",`# DD 尽调关系板\n\n织见的核心使用场景：把尽调材料组织成一张可追溯的关系网。\n\n## 节点 = 判断\n- 核心判断：行业增长驱动力\n- 支撑判断：财务指标改善\n- 风险判断：客户集中度过高\n\n## 线 = 判断之间的关系\n- 财务改善 → 支撑 → 增长驱动\n- 客户集中 → 反证 → 商业可持续\n- 行业报告 → 证据 → 增长驱动\n\n## 便签 = 不确定的内容\n- "大客户续约率未公开，待验证"\n- "技术路线切换的窗口期不确定"\n\n## 附件 = 来源\n- 行业研究报告\n- 企业公告\n- 公开访谈记录`);
   const industryFile=makeBuiltinFile("商业航天-公开研究口径.md","text","text/markdown;charset=utf-8",`# 商业航天公开研究口径\n\n仅使用公开来源：\n\n- 政府公开政策与统计\n- 企业公告和公开访谈\n- 已公开的行业研究报告\n\n不纳入：会议纪要、上会材料、交易条款、项目专属资料。`);
   const materialFile=makeBuiltinFile("Win11-Fluent-材质系统.md","text","text/markdown;charset=utf-8",`# Win11 Fluent Design 材质系统\n\n织见的视觉基础是 Windows 11 Fluent Design 的材质方法论。\n\n## 七层堆叠\n\n| 层 | 名称 | 作用 |\n|---|---|---|\n| L1 | 漂移色 | 缓慢流动的底色光晕 |\n| L2 | Mica | 半透明云母质感 |\n| L3 | 噪点 | 微观颗粒感 |\n| L4 | 纹理 | 网格/圆点/线条/空白 |\n| L5 | 画布 | 透明，让底层透出 |\n| L6 | 节点 | 卡片层 |\n| L7 | Chrome | 工具栏/侧栏 |\n\n## 三种变体\n\n- **fluent**：磨砂玻璃（默认）\n- **neumorph**：新拟态——连续表面\n- **minimal**：简约——极简边框\n\n> 材质是地板，不是天花板。底层统一，表层因内容而变。`);
-  const roadmapFile=makeBuiltinFile("织见-路线图.md","text","text/markdown;charset=utf-8",`# 织见路线图\n\n## 已完成（C1–I6）\n\n- C1–C8：基础画布、节点、连接、便签、附件\n- C9–C12：形变展开、语义关系、布局系统\n- C13：精简重构，移除展开内容\n- E5：Win11 Fluent Design 材质系统\n- F1–F19：七种样式预设、背景纹理、漂移色、Mica\n- G1–G12：桌面应用（Electron）、导入导出（.fantin）、自动主题、AI 接口 v1.3、任务栏图标、版权声明、形变 Bug 修复\n- H1–H5：性能优化（撤销栈/位图生命周期/渲染节流）、Web 预览机制、安全加固\n- I5–I6：v0.5.0 发布——第三方库本地化、PDF/Word 预览修复、安装版优化\n\n## 待优化\n\n- 性能优化中阶任务（H2/H3 待续）\n- 玻璃样式绿带问题（已搁置）\n- SVG 矢量导出（已搁置）\n\n## 待开发\n\n- AI 自主画板构建（利用 typed relations + morph）\n- OPML 导出\n- 更多预览格式支持\n- 形变机制深化`);
+  const roadmapFile=makeBuiltinFile("织见-路线图.md","text","text/markdown;charset=utf-8",`# 织见路线图\n\n## 已完成（C1–K2）\n\n- C1–C8：基础画布、节点、连接、便签、附件\n- C9–C12：形变展开、语义关系、布局系统\n- C13：精简重构，移除展开内容\n- E5：Win11 Fluent Design 材质系统\n- F1–F19：七种样式预设、背景纹理、漂移色、Mica\n- G1–G12：桌面应用（Electron）、导入导出（.fantin）、自动主题、AI 接口 v1.3、任务栏图标、版权声明、形变 Bug 修复\n- H1–H5：性能优化（撤销栈/位图生命周期/渲染节流）、Web 预览机制、安全加固\n- I5–I9：v0.5.0–0.5.2 发布——第三方库本地化、PDF/Word 预览修复、安装版优化、导出图片修复\n- J1–J4：v0.6.0–0.6.3——路径优化（i6→src）、性能 LOD 降级渲染、流光效果三层独立游动、Alt+Enter 全屏、Excel 暗色模式\n- K1–K2：v0.7.0–0.7.1——AI skill 集成（操作画布 + 读 .fantin 生成报告）、skill 自动安装、合并指引\n\n## 待优化\n\n- 性能优化中阶任务（H2/H3 待续）\n- 玻璃样式绿带问题（已搁置）\n- SVG 矢量导出（已搁置）\n\n## 待开发\n\n- AI 自主画板构建（利用 typed relations + morph）\n- OPML 导出\n- 更多预览格式支持\n- 形变机制深化`);
 
   /* ═══════════════════════════════════════════════════════════
      画布一：总览——什么是织见
@@ -171,7 +172,7 @@ function ensureTutorProject(){
   c2Focus.jumpTo={canvasId:c1.id,itemId:c1Focus.id};
   c2Expand.jumpTo={canvasId:c5.id,itemId:null};
   c2Morph.jumpTo={canvasId:c6.id,itemId:null};
-  c2Jump.jumpTo={canvasId:c7.id,itemId:null};
+  c2Jump.jumpTo={canvasId:c8.id,itemId:null};
 
   /* ═══════════════════════════════════════════════════════════
      画布三：连接类功能
@@ -329,40 +330,62 @@ function ensureTutorProject(){
   /* ── 跃迁回案例1 ── */
   c6Root.jumpTo={canvasId:c5.id,itemId:c5Thesis.id};
 
+  /* ───────────────────────────────────────────────────────────
+     画布七：AI 功能
+     布局：logic
+     两个方向：操作画布 / 读取导出
+  ═══════════════════════════════════════════════════════════ */
+  const c7Root=makeNode(c7,"织见的 AI 能力",-10,-280,"#2d5fd3",null,
+    "# AI 能力\n\n织见与 AI 的交互有两个方向：\n\n1. **AI 操作画布**：AI 通过 ZhijianAI 接口在应用内创建节点、连线、布局\n2. **AI 读取 .fantin**：AI 解析导出文件，读取关系网络和附件，生成报告\n\n设置 → AI 设置里可导出完整指引。",
+    "AI 双向交互。");
+  const c7Operate=makeNode(c7,"AI 操作画布",-460,-100,"#319b77",c7Root,
+    "## AI 操作画布\n\n通过 `window.ZhijianAI` 接口（37 个命令）：\n\n- 创建节点、便签、附件\n- 建立语义连线（关联/支撑/导致/反证/证据）\n- 切换布局和样式\n- 批量构建（buildCanvas）\n- 形变/展开控制\n\n**场景**：AI 根据文档/报告自动构建思维关系板。",
+    "37 个操作命令。");
+  const c7Report=makeNode(c7,"AI 读取 .fantin",230,-100,"#319b77",c7Root,
+    "## AI 读取 .fantin 生成报告\n\n导出 .fantin 文件后发给 AI：\n\n1. AI 解压（ZIP 格式）\n2. 读 data.json（关系网络）\n3. 读附件内容（Markdown 全文）\n4. 按关系结构组织报告\n5. 输出带超链接 + 数据来源标注的报告\n\n**素材边界铁律**：AI 可联网辅助理解，但报告内容只能来自 .fantin。",
+    "导出 → AI → 报告。");
+  const c7Howto=makeNode(c7,"如何使用",-460,80,"#d78f36",c7Root,
+    "## 使用步骤\n\n1. 在画布上构建关系板（节点 + 连线 + 附件）\n2. 导出 → .fantin 文件\n3. 设置 → AI 设置 → 复制指引到剪贴板\n4. 将指引 + .fantin 文件发给任意 AI\n5. AI 生成报告（含超链接和来源标注）\n\n**兼容性**：ZCode 自动发现 skill；其他 agent 粘贴指引即可。",
+    "三步上手。");
+  makeNote(c7,"## 素材边界铁律\n\nAI 可联网查资料辅助理解，\n但报告内容只能来自\n.fantin 的 data.json + 附件。\n\n每条数据标注来源。\n\n外部知识不可写入报告。",230,80,"#fef3c7",260,160,"核心原则。");
+  relate(c7,c7Operate,c7Report,"related","两个方向互补");
+  relate(c7,c7Howto,c7Root,"evidence","使用步骤","","highlight");
+  c7Root.jumpTo={canvasId:c1.id,itemId:c1Root.id};
+
   /* ═══════════════════════════════════════════════════════════
-     画布七：现状与规划
+     画布八：现状与规划
      布局：logic
      已完成 / 待优化 / 待开发
   ═══════════════════════════════════════════════════════════ */
-  const c7Root=makeNode(c7,"织见：现状与规划",-10,-280,"#2d5fd3",null,
-    "# 现状与规划\n\n织见从 2024 年概念诞生到现在，经历了 C1–I6 多个版本迭代，已发布 v0.5.0。\n\n这里记录已完成的工作、正在优化的问题、以及未来规划。",
+  const c8Root=makeNode(c8,"织见：现状与规划",-10,-280,"#2d5fd3",null,
+    "# 现状与规划\n\n织见从 2024 年概念诞生到现在，经历了 C1–K2 多个版本迭代，已发布 v0.7.1。\n\n这里记录已完成的工作、正在优化的问题、以及未来规划。",
     "持续迭代中。");
-  const c7Done=makeNode(c7,"已完成：C1–I6",-460,-100,"#319b77",c7Root,
-    "## 已完成里程碑\n\n- **C1–C8**：基础画布、节点、连接、便签、附件\n- **C9–C12**：形变展开、语义关系、布局系统\n- **C13**：精简重构，移除展开内容（将回归）\n- **E5**：Win11 Fluent Design 材质系统\n- **F1–F19**：七种样式预设、背景纹理、漂移色、Mica\n- **G1–G12**：桌面应用（Electron）、导入导出（.fantin）、自动主题、AI 接口 v1.3、任务栏图标、版权声明、形变 Bug 修复\n- **H1–H5**：性能优化（撤销栈/位图生命周期/渲染节流）、Web 预览机制、安全加固\n- **I5–I6**：v0.5.0 发布——第三方库本地化、PDF/Word 预览修复、安装版优化",
+  const c8Done=makeNode(c8,"已完成：C1–K2",-460,-100,"#319b77",c8Root,
+    "## 已完成里程碑\n\n- **C1–C8**：基础画布、节点、连接、便签、附件\n- **C9–C12**：形变展开、语义关系、布局系统\n- **C13**：精简重构，移除展开内容（将回归）\n- **E5**：Win11 Fluent Design 材质系统\n- **F1–F19**：七种样式预设、背景纹理、漂移色、Mica\n- **G1–G12**：桌面应用（Electron）、导入导出（.fantin）、自动主题、AI 接口 v1.3、任务栏图标、版权声明、形变 Bug 修复\n- **H1–H5**：性能优化（撤销栈/位图生命周期/渲染节流）、Web 预览机制、安全加固\n- **I5–I9**：v0.5.0–0.5.2 发布——第三方库本地化、PDF/Word 预览修复、安装版优化、导出图片修复\n- **J1–J4**：v0.6.0–0.6.3——路径优化（i6→src）、性能 LOD 降级渲染、流光效果三层独立游动、Alt+Enter 全屏、Excel 暗色模式\n- **K1–K2**：v0.7.0–0.7.1——AI skill 集成（操作画布 + 读 .fantin 生成报告）、skill 自动安装、合并指引",
     "核心功能已完成，已发布桌面安装版。");
-  const c7Optimize=makeNode(c7,"待优化",230,-100,"#d78f36",c7Root,
+  const c8Optimize=makeNode(c8,"待优化",230,-100,"#d78f36",c8Root,
     "## 待优化\n\n- 性能优化中阶任务（H2/H3 待续）\n- 玻璃样式绿带问题（已搁置）\n- SVG 矢量导出（已搁置）\n- Web 预览兼容性（部分站点禁止嵌入）",
     "持续打磨中。");
-  const c7Develop=makeNode(c7,"待开发",-460,80,"#6b73cc",c7Root,
+  const c8Develop=makeNode(c8,"待开发",-460,80,"#6b73cc",c8Root,
     "## 待开发\n\n- **AI 自主画板构建**：利用 typed relations + morph 自动画板\n- **OPML 导出**：标准格式互通\n- **更多预览格式**：扩展 PPT/PDF/Word 之外\n- **形变机制深化**：mind-node 展开的精简实现",
     "下一阶段重点。");
-  const c7Position=makeNode(c7,"竞争定位",230,80,"#7a55c0",c7Root,
-    "## 四个定位轴\n\n1. **就地形变**：节点展开 → 阅读区（护城河）\n2. **语义连接**：typed relations = 投资论证语言\n3. **聚焦切换**：全貌与单点\n4. **板→文导出**：关系板 → 投资建议书\n\n> AI 是辅助，不是卖点。",
+  const c8Position=makeNode(c8,"竞争定位",230,80,"#7a55c0",c8Root,
+    "## 定位\n\n- **就地形变**：节点展开 → 阅读区\n- **语义连接**：typed relations = 投资论证语言\n- **聚焦切换**：全貌与单点\n- **板→文导出**：关系板 → 投资建议书\n\n> AI 是辅助，不是卖点。",
     "差异化定位。");
   /* ── 路线图附件（展开状态）── */
-  const c7Roadmap=makeFileCard(c7,roadmapFile,230,-280,260,145,"完整路线图——展开查看。",true);
+  const c8Roadmap=makeFileCard(c8,roadmapFile,230,-280,260,145,"完整路线图——展开查看。",true);
   /* ── 品牌宣言 ── */
-  const c7Brand=makeFileCard(c7,brandFile,-460,-280,220,58,"织见品牌宣言。");
+  const c8Brand=makeFileCard(c8,brandFile,-460,-280,220,58,"织见品牌宣言。");
   /* ── 便签 ── */
-  makeNote(c7,"## 版本命名规则\n\n- **C** 系列：Canvas（画布功能）\n- **E** 系列：Experience（材质体验）\n- **F** 系列：Fluent（样式预设）\n- **G** 系列：Desktop（桌面应用）\n- **H** 系列：Hardening（体检加固）\n- **I** 系列：Installer（安装集成）\n\n> 每个大版本 = 一个完整的能力域。",-460,220,"#dbeafe",360,150,"版本命名逻辑。");
+  makeNote(c8,"## 版本命名规则\n\n- **C** 系列：Canvas（画布功能）\n- **E** 系列：Experience（材质体验）\n- **F** 系列：Fluent（样式预设）\n- **G** 系列：Desktop（桌面应用）\n- **H** 系列：Hardening（体检加固）\n- **I** 系列：Installer（安装集成）\n- **J** 系列：Journey（性能与体验优化）\n- **K** 系列：Knowledge（AI 能力集成）\n\n> 每个大版本 = 一个完整的能力域。",-460,220,"#dbeafe",360,170,"版本命名逻辑。");
   /* ── 关系 ── */
-  relate(c7,c7Done,c7Optimize,"causes","已完成才知待优化");
-  relate(c7,c7Optimize,c7Develop,"related","待优化和待开发并行推进");
-  relate(c7,c7Position,c7Done,"evidence","定位轴由已完成功能支撑","emphasis");
-  relate(c7,c7Roadmap,c7Root,"evidence","完整路线图","highlight");
-  relate(c7,c7Brand,c7Root,"evidence","品牌宣言");
+  relate(c8,c8Done,c8Optimize,"causes","已完成才知待优化");
+  relate(c8,c8Optimize,c8Develop,"related","待优化和待开发并行推进");
+  relate(c8,c8Position,c8Done,"evidence","定位由已完成功能支撑","emphasis");
+  relate(c8,c8Roadmap,c8Root,"evidence","完整路线图","highlight");
+  relate(c8,c8Brand,c8Root,"evidence","品牌宣言");
   /* ── 跃迁回总览 ── */
-  c7Root.jumpTo={canvasId:c1.id,itemId:c1Root.id};
+  c8Root.jumpTo={canvasId:c1.id,itemId:c1Root.id};
 
   /* ── 设置活动画布的节点展开状态 ── */
   state.activeProjectId=state.projects.some(p=>p.id===previousProject)?previousProject:project.id;
@@ -385,7 +408,7 @@ function ensureTutorProject(){
     const z=clamp(Math.min((Math.max(900,W)-pad*2)/wW,(Math.max(620,H)-pad*2)/hW),.32,.9);
     canvas.camera={x:left-(Math.max(900,W)/z-wW)/2,y:top-(Math.max(620,H)/z-hW)/2,zoom:z};
   };
-  [c1,c2,c3,c4,c5,c6,c7].forEach(frameCanvas);
+  [c1,c2,c3,c4,c5,c6,c7,c8].forEach(frameCanvas);
 
   syncUid();return true;
 }

@@ -1,7 +1,7 @@
 {
   "name": "zhijian-weavision",
-  "version": "0.5.2",
-  "description": "织见 · 思维关系板 — Desktop App (I9)",
+  "version": "0.7.4",
+  "description": "织见 · 思维关系板 — Desktop App (K5)",
   "main": "main.js",
   "scripts": {
     "start": "electron .",
@@ -20,22 +20,22 @@
     ],
     "extraResources": [
       {
-        "from": "../../织见-思维关系板-I9.html",
+        "from": "../../织见-思维关系板-K5.html",
         "to": "index.html"
       },
       {
-        "from": "../../i6",
-        "to": "i6",
+        "from": "../../src",
+        "to": "src",
         "filter": [
           "**/*",
           "!**/.mimosa/**"
         ]
       },
       {
-        "from": "../../g10",
-        "to": "g10",
+        "from": "../../../.agents/skills/zhijian-ai",
+        "to": ".agents/skills/zhijian-ai",
         "filter": [
-          "assets/logos/**"
+          "**/*"
         ]
       },
       {
@@ -48,7 +48,7 @@
       }
     ],
     "directories": {
-      "output": "../../发行版/I9"
+      "output": "../../发行版/K5"
     },
     "fileAssociations": [
       {

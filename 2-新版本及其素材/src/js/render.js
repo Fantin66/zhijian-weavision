@@ -274,31 +274,37 @@ function render(){
     }
   }
   ctx.restore();
-  /* 连接点 hover tooltip（I5-fix: 读侧改用 state.linkPointHover——此前读裸全局 linkPointHover，
-     而写入方 interaction.js 写的是 state.linkPointHover，两个变量分裂导致提示永远不显示） */
-  if(state.linkPointHover){
-    const node=state.items.find(i=>i.id===state.linkPointHover);
-    if(node){
-      const b=itemBounds(node);
-      const lx=b.x+b.w,ly=b.y+b.h/2;
-      ctx.save();
-      ctx.font="600 "+(10/z)+"px "+FONT;
-      const label="拖出建立子节点";
-      const tw=ctx.measureText(label).width;
-      const pad=6/z,lh=16/z;
-      ctx.fillStyle=state.dark?"rgba(28,28,30,.92)":"rgba(255,255,255,.92)";
-      ctx.shadowColor="rgba(0,0,0,.15)";ctx.shadowBlur=6/z;
-      roundRectPath(ctx,lx+8/z,ly-lh/2,tw+pad*2,lh,lh/2);ctx.fill();
-      ctx.shadowColor="transparent";
-      ctx.fillStyle="#3a4a6b";ctx.textAlign="center";ctx.textBaseline="middle";
-      ctx.fillText(label,lx+8/z+tw/2+pad,ly);
-      ctx.restore();
-    }
+  /* 连接点 hover tooltip — DOM 实现（K5-fix: canvas 绘制在 restore 后用世界坐标=位置漂移，
+     字号 10/z 低缩放时巨大=大小不协调，canvas z-index 低于预览层=被遮挡） */
+  var linkTip=document.getElementById("linkPtTip");
+  if(linkTip){
+    if(state.linkPointHover){
+      var lnode=state.items.find(i=>i.id===state.linkPointHover);
+      if(lnode){
+        var lb=itemBounds(lnode);
+        var sx=(lb.x+lb.w-state.camera.x)*z,sy=(lb.y+lb.h/2-state.camera.y)*z;
+        linkTip.textContent="拖出建立子节点";
+        linkTip.style.display="block";
+        linkTip.style.left=(sx+10)+"px";
+        linkTip.style.top=(sy-linkTip.offsetHeight/2)+"px";
+      }
+    }else{linkTip.style.display="none";}
   }
   updateSelBar();updateStatusBar();drawStatusHUD();updateFocusHud();
-  renderDock();   /* 下 Dock：随状态（idle/select/edit）同步切换内容 */ /* 展开内容与编辑器使用同一 Markdown DOM 预览器 */
-  syncMorphDom(); /* 形变预览 DOM 覆盖层：跟随卡片位置/缩放 */
-  if(typeof syncDetailReadDom==="function")syncDetailReadDom(); /* E5: 展开内容阅读层同步 */
+  renderDock();   /* 下 Dock：随状态（idle/select/edit）同步切换内容 */
+  /* J2-fix: 缩放/平移时跳过 DOM 同步 + 隐藏覆盖层——预览内容用 canvas 占位替代，
+     停止后 200ms 自动恢复。避免 syncDetailReadDom 的 scrollWidth/Height 重排和
+     syncMorphDom/syncPvDom 的逐元素样式写入拖慢缩放帧率 */
+  if(state._camInteracting){
+    if(previewLayer)previewLayer.style.visibility="hidden";
+    if(typeof detailReadLayer!=="undefined"&&detailReadLayer)detailReadLayer.style.visibility="hidden";
+  }else{
+    if(previewLayer)previewLayer.style.visibility="";
+    if(typeof detailReadLayer!=="undefined"&&detailReadLayer)detailReadLayer.style.visibility="";
+    syncMorphDom();
+    if(typeof syncDetailReadDom==="function")syncDetailReadDom();
+    syncPvDom();
+  }
   /* 连接待选态清理：待选元素被删/不存在时退出待选 */
   if(linkPendingId!==null&&!state.items.some(i=>i.id===linkPendingId))linkPendingId=null;
   /* 清理已删除连线的动画状态（防 Map 泄漏）。
@@ -319,7 +325,6 @@ function render(){
       }
     }
   }
-  syncPvDom();
   /* H1 任务3: 跃迁闪烁由 CSS .jump-confirm 动画完成，不再触发低频全量重绘定时器 */
 }
 /* 形变覆盖层跟随文件卡片：位置/尺寸按相机变换实时同步；
@@ -924,7 +929,7 @@ async function getWatermarkImg(){
   const key=preset+"-"+(dark?"dark":"light");
   if(_wmImgCache.img&&_wmImgCache.key===key)return _wmImgCache.img;
   try{
-    const url="i6/assets/watermarks/wm-"+preset+"-"+(dark?"dark":"light")+".png";
+    const url="src/assets/watermarks/wm-"+preset+"-"+(dark?"dark":"light")+".png";
     const resp=await fetch(url);
     if(!resp.ok)throw new Error("fetch "+resp.status);
     const blob=await resp.blob();
@@ -993,16 +998,11 @@ async function exportPNG(){
   state.camera.zoom=s;
   state.camera.x=minX-PAD;
   state.camera.y=minY-PAD;
-  /* G11: 导出前收起所有形变预览和就地展开，避免 DOM 覆盖层区域在导出图中留白。
-     导出是同步操作（toBlob 回调读已画好的离屏 canvas），收起和恢复都在同一帧内完成 */
-  const _exportMorphBk=[],_exportDetailBk=[];
-  for(const _it of state.items){
-    if(_it.type==="fileCard"&&_it.previewOpen){
-      _exportMorphBk.push({it:_it,w:_it.w,h:_it.h});
-      _it.previewOpen=false;
-      if(_it._cardW!==undefined){_it.w=_it._cardW;_it.h=_it._cardH;}
-    }
-  }
+  /* J3-fix: 导出时保留形变预览——设 _exporting 标志让 drawFileCard 忽略 hasMorph
+     始终画背景+内容。图片/文本预览直接画在 canvas 上；DOM 类预览画文件名占位。
+     就地展开仍收起（纯 DOM 无法捕获）。 */
+  state._exporting=true;
+  const _exportDetailBk=[];
   for(const _id of [...expandedDetailIds]){
     const _dit=state.items.find(x=>x.id===_id);
     if(_dit){
@@ -1057,8 +1057,7 @@ async function exportPNG(){
     ctx=savedCtx;
     W=savedW;H=savedH;
     state.camera.zoom=savedZoom;state.camera.x=savedX;state.camera.y=savedY;
-    /* G11: 恢复形变预览和就地展开状态 */
-    for(const _b of _exportMorphBk){_b.it.previewOpen=true;_b.it.w=_b.w;_b.it.h=_b.h;}
+    state._exporting=false;
     for(const _b of _exportDetailBk){expandedDetailIds.add(_b.it.id);_b.it.w=_b.w;_b.it.h=_b.h;}
     requestRender();
   }
@@ -1999,7 +1998,7 @@ function drawFileCard(it,cc){
   if(!f){c.fillStyle=dc("#a1a1a6","#636366");c.font="12px "+FONT;c.textAlign="center";c.textBaseline="middle";c.fillText("文件已移除",b.x+b.w/2,b.y+b.h/2);return;}
   /* ===== 预览态（形变展开后）：顶部标题栏 + 大内容区，元素本体即预览 ===== */
   if(it.previewOpen){
-    const hasMorph=!!getMorph(it.id);
+    const hasMorph=state._exporting?false:!!getMorph(it.id);
     const headH=hasMorph?0:PV_HEAD_H,cy=b.y+headH,ch=Math.max(10,b.h-headH);
     if(!hasMorph){
     /* 标题栏（仅在 DOM 覆盖层不存在时绘制——动画期间或覆盖层尚未创建时；
@@ -2044,6 +2043,7 @@ function drawFileCard(it,cc){
     c.save();
     roundRectPath(c,b.x,cy,b.w,ch,0,0,10,10);c.clip();
     if(it.previewOpen){
+      if(state._cameraInteracting){c.fillStyle=dc("rgba(240,242,245,.95)","rgba(28,28,32,.95)");c.fillRect(b.x,cy,b.w,ch);c.fillStyle=dc("#9a9a9e","#7a7a7e");c.font="12px "+SANS_STACK;c.textAlign="center";c.textBaseline="middle";var _fn=f?f.name:"";c.fillText(_fn.length>22?_fn.slice(0,20)+"…":_fn,b.x+b.w/2,cy+ch/2);}else{
       const pv=getPreviewContent(it.fileId);
       const isMd=f&&/\.(md|markdown)$/i.test(f.name);
       /* 多维覆盖层已存在（DOM 层正在/已经呈现内容）→ canvas 不画白底，
@@ -2051,7 +2051,7 @@ function drawFileCard(it,cc){
       if(isMd){
         /* Markdown：DOM 覆盖层完整渲染（标题/表格/列表/代码/下划线） */
         if(!hasMorph){c.fillStyle=dc("rgba(255,255,255,.94)","rgba(30,30,34,.94)");c.fillRect(b.x,cy,b.w,ch);}
-        ensureMorphDom(it);
+        if(!state._exporting)ensureMorphDom(it);
       }else if(pv&&pv.kind==="img"&&pv.img){
         if(pv.img){c.drawImage(pv.img,b.x,cy,b.w,ch);}else{c.fillStyle=dc("#f5f6f8","#22222a");c.fillRect(b.x,cy,b.w,ch);}
       }else if(pv&&pv.text){
@@ -2086,7 +2086,15 @@ function drawFileCard(it,cc){
         /* 文档/表格/PPT/PDF/链接/音视频：由 DOM 覆盖层直接渲染真实预览
            （canvas 仅在无覆盖层时画半透明白底占位，避免闪烁） */
         if(!hasMorph){c.fillStyle=dc("rgba(255,255,255,.88)","rgba(30,30,34,.88)");c.fillRect(b.x,cy,b.w,ch);}
-        ensureMorphDom(it);
+        if(state._exporting){
+          /* J3-fix: 导出时 DOM 类预览画文件名+类型占位，避免空白 */
+          c.fillStyle=dc("#3a4a6b","#6a7a9b");c.font="600 15px "+FONT;c.textAlign="center";c.textBaseline="middle";
+          c.fillText(KIND_LABEL[f.kind]||"文件",b.x+b.w/2,cy+ch/2-12);
+          c.fillStyle=dc("#1a1a2e","#e8e8ea");c.font="600 12px "+FONT;
+          c.fillText(truncateStr(f.name,b.w-28),b.x+b.w/2,cy+ch/2+12);
+          c.textAlign="start";c.textBaseline="alphabetic";
+        }
+        if(!state._exporting)ensureMorphDom(it);
       }else{
         /* 其他二进制：信息卡 + 下载降级提示 */
         c.fillStyle=dc("#f5f6f8","#22222a");c.fillRect(b.x,cy,b.w,ch);
@@ -2099,6 +2107,7 @@ function drawFileCard(it,cc){
         const sz=f.size?formatSize(f.size):"";
         c.fillText(sz+" · 点击下方下载查看",b.x+b.w/2,cy+ch/2+22);
       }
+    }
     }
     c.restore();
     c.textAlign="start";c.textBaseline="alphabetic";
@@ -2285,14 +2294,15 @@ function getRelated(id){
 function animateCamera(tx,ty,tz){
   const sx=state.camera.x,sy=state.camera.y,sz=state.camera.zoom;
   const start=performance.now();const dur=200;
+  state._camInteracting=true;
   function step(){
     const t=Math.min(1,(performance.now()-start)/dur);
     const e=t<1?1-Math.pow(1-t,2.5):1; /* easeOutQuint-ish: fast start, smooth settle */
     state.camera.x=sx+(tx-sx)*e;
     state.camera.y=sy+(ty-sy)*e;
     state.camera.zoom=sz+(tz-sz)*e;
-    render();
-    if(t<1)requestAnimationFrame(step);
+    if(t<1){requestRender();requestAnimationFrame(step);}
+    else{state._camInteracting=false;render();} /* 动画结束——直接全量渲染，预览即时出现 */
   }
   step();
 }

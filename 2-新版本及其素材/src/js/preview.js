@@ -1199,12 +1199,12 @@ async function ensureCdn(kind){
     s.src=src;s.onload=res;s.onerror=()=>rej(new Error("load fail: "+src));
     document.head.appendChild(s);
   });
-  /* 本地优先：vendor 脚本随版本目录发布（i6/assets/vendor/），与 HTML 同根相对引用，离线也能渲染。
+  /* 本地优先：vendor 脚本随版本目录发布（src/assets/vendor/），与 HTML 同根相对引用，离线也能渲染。
      I6-fix: 原路径 "assets/vendor/" 从 I6.html 解析到根目录的 assets/vendor（只有 README），
-     本地文件全 404、退而走 CDN；改为 "i6/assets/vendor/" 后本地直接命中，不再依赖 CDN。 */
+     本地文件全 404、退而走 CDN；改为 "src/assets/vendor/" 后本地直接命中，不再依赖 CDN。 */
   const LOCAL=function(key2){
     const names={jszip:"jszip.min.js",docx:"docx-preview.min.js",xlsx:"xlsx.full.min.js",pdfjs:"pdf.min.js",pdfjsWorker:"pdf.worker.min.js",pptx:"pptx-preview.umd.js"};
-    return "i6/assets/vendor/"+names[key2];
+    return "src/assets/vendor/"+names[key2];
   };
   toast("正在加载"+kindLabel+"预览组件…");
   _cdnPromises[key]=(async function(){
@@ -1371,9 +1371,10 @@ async function renderSheet(b,bodyEl){
       });
       return tpl.innerHTML;
     };
-    const html=wb.SheetNames.map(n=>'<section class="pv-sheet"><h4 style="padding:8px 12px;margin:0;color:#1d1d1f;font-size:13px;border-bottom:1px solid rgba(0,0,0,.06)">'+escapeHtml(n)+'</h4>'+sanitizeSheetHtml(window.XLSX.utils.sheet_to_html(wb.Sheets[n],{header:"",footer:"",editable:false,id:"sheet-"+escapeHtml(n)}))+'</section>').join("");
+    const html=wb.SheetNames.map(n=>'<section class="pv-sheet"><h4>'+escapeHtml(n)+'</h4>'+sanitizeSheetHtml(window.XLSX.utils.sheet_to_html(wb.Sheets[n],{header:"",footer:"",editable:false,id:"sheet-"+escapeHtml(n)}))+'</section>').join("");
     bodyEl.innerHTML='<div style="padding:0 12px 20px">'+html+'</div>';
-    bodyEl.querySelectorAll("table").forEach(t=>{t.style.cssText="border-collapse:collapse;margin:10px 0;font-size:12px;min-width:100%;background:"+(state.dark?"#1a1a2e":"#fff");t.querySelectorAll("td,th").forEach(c=>{c.style.cssText="border:1px solid "+(state.dark?"rgba(255,255,255,.08)":"rgba(0,0,0,.09)")+";padding:5px 9px;font-weight:400;white-space:pre-wrap;vertical-align:top;color:"+(state.dark?"#e0e0e8":"inherit");});});
+    /* J3-fix: 表格样式改用 CSS 类（.pv-sheet table/td/th），跟着 data-theme 自动切换，
+       不再用内联样式（避免切主题后表格不刷新） */
     /* Sheet tabs for multi-sheet workbooks */
     var sheetNames=wb.SheetNames;if(sheetNames.length>1){
       var tabBar=document.createElement("div");tabBar.style.cssText="display:flex;gap:2px;padding:4px 0;border-bottom:1px solid "+(state.dark?"rgba(255,255,255,.06)":"rgba(0,0,0,.06)")+";margin-bottom:6px";

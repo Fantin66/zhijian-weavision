@@ -70,13 +70,18 @@ canvas.addEventListener("mousemove",e=>{
 });
 canvas.addEventListener("mouseleave",()=>{if(state.hover){state.hover=null;}if(state.linkPointHover){state.linkPointHover=null;}requestRender();});
 let trackpadPanUntil=0;
+let _camTimer=0;
+/* J2-fix: 缩放/平移时设标志——render 里跳过 DOM 同步 + 预览内容用占位替代，
+   200ms 无操作后清除，恢复完整渲染 */
 board.addEventListener("wheel",e=>{
   if(isTyping()) return;
   /* 浮层内滚轮放行：预览窗/形变层/Dock二级菜单/便签编辑/全屏层等
      内部滚动由各自容器原生接管，不拦截、不触发画布平移/缩放 */
   const t=e.target;
-  if(t&&t.closest&&t.closest("#previewLayer,#dockSub,#noteEditor,#notePreview,#detailPanel,#menuDrop,#fullscreenView,#dockBar .dock-inner,#searchResults")) return;
+  if(t&&t.closest&&t.closest(".pv-morph-content,.pv-body,#dockSub,#noteEditor,#notePreview,#detailPanel,#menuDrop,#fullscreenView,#dockBar .dock-inner,#searchResults")) return;
   e.preventDefault();
+  state._camInteracting=true;clearTimeout(_camTimer);
+  _camTimer=setTimeout(function(){state._camInteracting=false;requestRender();},80);
   const bxy=boardXY(e.clientX,e.clientY);
   /* Windows Precision Touchpad 会送出从很小到 100+ 的连续像素值，
      不能再用 deltaY<40 判断。只让 ctrl+wheel（捏合）和离散鼠标滚轮缩放；
@@ -99,7 +104,7 @@ board.addEventListener("wheel",e=>{
       state.camera.x+=e.deltaX/z;
       state.camera.y+=e.deltaY/z;
       if(zoomPctEl) zoomPctEl.textContent=Math.round(z*100)+"%";
-      render();updateStatusBar();
+      requestRender();updateStatusBar();
     }else{
       /* 离散鼠标滚轮 → 缩放 */
       const factor=Math.exp(-e.deltaY*0.0016);
@@ -699,6 +704,33 @@ function renderSidePanel(){
         {label:"取消"},{label:"删除",primary:true,onClick:()=>deleteProject(p.id)}
       ]);
     });
+    /* K5: 项目拖动排序 + 接受画布移入 */
+    el.draggable=true;
+    el.addEventListener("dragstart",e=>{
+      e.dataTransfer.setData("application/x-sidebar-project",p.id);
+      e.dataTransfer.effectAllowed="move";
+      el.classList.add("dragging");
+    });
+    el.addEventListener("dragend",()=>el.classList.remove("dragging"));
+    el.addEventListener("dragover",e=>{
+      if(e.dataTransfer.types.includes("application/x-sidebar-project")||e.dataTransfer.types.includes("application/x-sidebar-canvas")){
+        e.preventDefault();e.stopPropagation();
+        el.classList.add("drop-target");
+      }
+    });
+    el.addEventListener("dragleave",()=>el.classList.remove("drop-target"));
+    el.addEventListener("drop",e=>{
+      e.preventDefault();e.stopPropagation();el.classList.remove("drop-target");
+      var projId=e.dataTransfer.getData("application/x-sidebar-project");
+      var canvasId=e.dataTransfer.getData("application/x-sidebar-canvas");
+      if(projId&&projId!==p.id){
+        var rect=el.getBoundingClientRect();
+        var before=e.clientY<rect.top+rect.height/2;
+        reorderProjects(projId,p.id,before);
+      }else if(canvasId){
+        moveCanvasToProject(canvasId,p.id);
+      }
+    });
     projectList.appendChild(el);
   }
   /* 画布列表 */
@@ -726,6 +758,30 @@ function renderSidePanel(){
       showModal("删除画布",`<p style="font-size:var(--text-base);color:var(--ink-dim);line-height:1.7;margin:0">删除画布「${escapeHtml(c.name)}」？</p>`,[
         {label:"取消"},{label:"删除",primary:true,onClick:()=>deleteCanvas(c.id)}
       ]);
+    });
+    /* K5: 画布拖动排序 */
+    el.draggable=true;
+    el.addEventListener("dragstart",e=>{
+      e.dataTransfer.setData("application/x-sidebar-canvas",c.id);
+      e.dataTransfer.effectAllowed="move";
+      el.classList.add("dragging");
+    });
+    el.addEventListener("dragend",()=>el.classList.remove("dragging"));
+    el.addEventListener("dragover",e=>{
+      if(e.dataTransfer.types.includes("application/x-sidebar-canvas")){
+        e.preventDefault();e.stopPropagation();
+        el.classList.add("drop-target");
+      }
+    });
+    el.addEventListener("dragleave",()=>el.classList.remove("drop-target"));
+    el.addEventListener("drop",e=>{
+      e.preventDefault();e.stopPropagation();el.classList.remove("drop-target");
+      var canvasId=e.dataTransfer.getData("application/x-sidebar-canvas");
+      if(canvasId&&canvasId!==c.id){
+        var rect=el.getBoundingClientRect();
+        var before=e.clientY<rect.top+rect.height/2;
+        reorderCanvases(canvasId,c.id,before);
+      }
     });
     canvasList.appendChild(el);
   }

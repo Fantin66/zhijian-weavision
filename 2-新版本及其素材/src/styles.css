@@ -203,6 +203,10 @@ button{font-family:inherit;cursor:pointer}
 .proj-item:hover .pi-del,.canvas-item:hover .ci-del{display:flex}
 .proj-item .pi-del:hover,.canvas-item .ci-del:hover{background:var(--danger-soft);color:var(--danger)}
 .canvas-item .ci-ic{width:14px;height:14px;flex:none;opacity:.6}
+/* K5: 拖动排序视觉反馈 */
+.proj-item.dragging,.canvas-item.dragging{opacity:.4}
+.proj-item.drop-target,.canvas-item.drop-target{box-shadow:inset 0 2px 0 var(--accent),inset 0 -2px 0 transparent}
+.proj-item.drop-target-after,.canvas-item.drop-target-after{box-shadow:inset 0 2px 0 transparent,inset 0 -2px 0 var(--accent)}
 .canvas-item.active .ci-ic{opacity:1}
 #lib-head{display:flex;align-items:center;gap:6px;padding:12px 12px 10px}
 #lib-head .title{font-size:11px;font-weight:700;color:var(--ink-dim);letter-spacing:.8px;text-transform:uppercase;flex:1;user-select:none}
@@ -729,6 +733,14 @@ body.immersive #immersiveExitBtn{display:flex;align-items:center;gap:7px}
 #previewLayer .pv-morph-tools .pv-morph-zoom{min-width:42px;font-variant-numeric:tabular-nums}
 #previewLayer .pv-morph-content{flex:1;min-height:0;overflow:auto;position:relative;background:#fff;transform-origin:top left}
 [data-theme="dark"] #previewLayer .pv-morph-content{background:#20242f}
+[data-theme="dark"] #previewLayer .pv-win .pv-body{background:#20242f}
+/* J3-fix: Excel 预览暗色模式用 CSS 跟 data-theme 走，不用内联样式（避免切主题不刷新） */
+.pv-sheet table{border-collapse:collapse;margin:10px 0;font-size:12px;min-width:100%;background:#fff}
+.pv-sheet td,.pv-sheet th{border:1px solid rgba(0,0,0,.09);padding:5px 9px;font-weight:400;white-space:pre-wrap;vertical-align:top;color:inherit}
+.pv-sheet h4{padding:8px 12px;margin:0;color:#1d1d1f;font-size:13px;border-bottom:1px solid rgba(0,0,0,.06)}
+[data-theme="dark"] .pv-sheet table{background:#1a1a2e}
+[data-theme="dark"] .pv-sheet td,[data-theme="dark"] .pv-sheet th{border-color:rgba(255,255,255,.08);color:#e0e0e8}
+[data-theme="dark"] .pv-sheet h4{color:#e8e8ec;border-bottom-color:rgba(255,255,255,.06)}
 #previewLayer .pv-web-wrap,.pv-win .pv-web-wrap{display:flex;flex-direction:column;flex:1 1 0;width:100%;height:100%;min-height:0;overflow:hidden}
 #previewLayer .pv-web-wrap>.pv-stage,.pv-win .pv-web-wrap>.pv-stage{position:relative;flex:1 1 0;width:100%;height:100%!important;min-height:0;overflow:hidden}
 #previewLayer .pv-morph .morph-fit{flex:1;display:flex;align-items:center;justify-content:center;overflow:hidden;min-height:0}
@@ -1511,8 +1523,15 @@ body.fullscreen-active #fullscreenTopControls.fv-vertical-controls{flex-wrap:wra
   #searchWrap{width:142px}#searchWrap:focus-within{width:190px}
 }
 @media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
-/* H4: 应用内"背景流光"开关——只停 #bg-l1-drift 背景漂浮色，不影响其他动画（按钮闪烁/转圈/脉冲等照常） */
-body.reduced-motion #bg-l1-drift{animation:none!important}
+/* K4: 应用内"背景流光"开关——关闭时藏元素（不只是停动画，否则静态色块仍透过 Mica 可见） */
+body.reduced-motion #bg-l1-drift{display:none!important}
+/* K5: 流光关闭时给 Mica 一层极淡的静态渐变，避免纯白板失去通透感 */
+body.reduced-motion #bg-l2-mica{
+  background:radial-gradient(ellipse at 50% 30%,rgba(250,250,252,1) 0%,rgba(244,247,252,.96) 60%,rgba(240,244,250,.92) 100%)!important;
+}
+[data-theme="dark"] body.reduced-motion #bg-l2-mica{
+  background:radial-gradient(ellipse at 50% 30%,rgba(26,26,46,1) 0%,rgba(23,25,40,.96) 60%,rgba(20,22,36,.92) 100%)!important;
+}
 
 /* C11: fullscreen tab scrollbar visible */
 #fullscreenView .fv-tabs::-webkit-scrollbar{height:4px}
@@ -1563,56 +1582,95 @@ body.reduced-motion #bg-l1-drift{animation:none!important}
 #dockBar,#selbar,#ctxMenu{z-index:48}
 #focusHud{z-index:50}
 
-/* --- L1 漂移色：超慢动画 + 径向渐变色块 --- */
+/* --- L1 漂移色：小色斑 + 大位移 + 亮心渐变，水面光影感 --- */
 #bg-l1-drift{
-  inset:-15%;
-  animation:f1-drift 60s ease-in-out infinite alternate;
+  inset:-20%;
+  filter:blur(20px);
+  animation:drift-a 68s ease-in-out infinite alternate;
 }
-@keyframes f1-drift{
-  0%{transform:translate(0,0) scale(1)}
-  33%{transform:translate(3vw,-2vh) scale(1.04)}
-  66%{transform:translate(-2.5vw,1.5vh) scale(1.06)}
-  100%{transform:translate(1.5vw,3vh) scale(1.03)}
+#bg-l1-drift::before,#bg-l1-drift::after{
+  content:"";position:absolute;inset:-15%;
 }
-/* F4: neutral 色族去掉青绿（用户反馈右侧持续发绿），改为蓝+紫中性搭配 */
+#bg-l1-drift::before{animation:drift-b 84s ease-in-out infinite alternate;}
+#bg-l1-drift::after{animation:drift-c 100s ease-in-out infinite alternate;}
+@keyframes drift-a{
+  0%{transform:translate(-30vw,-22vh) scale(1.15)}
+  20%{transform:translate(32vw,-15vh) scale(1.08)}
+  40%{transform:translate(38vw,28vh) scale(1.22)}
+  60%{transform:translate(-25vw,32vh) scale(1.1)}
+  80%{transform:translate(20vw,-25vh) scale(1.18)}
+  100%{transform:translate(-30vw,20vh) scale(1.12)}
+}
+@keyframes drift-b{
+  0%{transform:translate(30vw,25vh) scale(1.12)}
+  20%{transform:translate(-35vw,-18vh) scale(1.2)}
+  40%{transform:translate(15vw,30vh) scale(1.08)}
+  60%{transform:translate(-30vw,22vh) scale(1.22)}
+  80%{transform:translate(38vw,-20vh) scale(1.1)}
+  100%{transform:translate(-25vw,-28vh) scale(1.15)}
+}
+@keyframes drift-c{
+  0%{transform:translate(-30vw,-25vh) scale(1.2)}
+  20%{transform:translate(35vw,28vh) scale(1.08)}
+  40%{transform:translate(-38vw,20vh) scale(1.18)}
+  60%{transform:translate(28vw,-30vh) scale(1.12)}
+  80%{transform:translate(-20vw,25vh) scale(1.22)}
+  100%{transform:translate(30vw,-22vh) scale(1.1)}
+}
+/* neutral：蓝+绿+琥珀，亮心+外晕渐变，渐变居中靠位移移动 */
 [data-bgfamily="neutral"] #bg-l1-drift{
-  background:
-    radial-gradient(circle at 20% 25%,rgba(91,126,225,.35),transparent 42%),
-    radial-gradient(circle at 78% 68%,rgba(122,85,192,.22),transparent 45%),
-    radial-gradient(circle at 50% 85%,rgba(180,120,200,.18),transparent 50%);
+  background:radial-gradient(circle at 50% 50%,rgba(59,130,246,.75) 0%,rgba(59,130,246,.15) 12%,transparent 35%);
 }
+[data-bgfamily="neutral"] #bg-l1-drift::before{
+  background:radial-gradient(circle at 50% 50%,rgba(52,211,153,.7) 0%,rgba(52,211,153,.13) 12%,transparent 35%);
+}
+[data-bgfamily="neutral"] #bg-l1-drift::after{
+  background:radial-gradient(circle at 50% 50%,rgba(251,191,36,.65) 0%,rgba(251,191,36,.12) 12%,transparent 35%);
+}
+/* warm：橙+红+金，暖阳（cream/kraft 底色） */
 [data-bgfamily="warm"] #bg-l1-drift{
-  background:
-    radial-gradient(circle at 25% 30%,rgba(224,136,42,.35),transparent 42%),
-    radial-gradient(circle at 75% 70%,rgba(201,74,62,.28),transparent 45%),
-    radial-gradient(circle at 50% 50%,rgba(245,158,11,.2),transparent 50%);
+  background:radial-gradient(circle at 30% 30%,rgba(251,146,60,.4),transparent 55%);
 }
+[data-bgfamily="warm"] #bg-l1-drift::before{
+  background:radial-gradient(circle at 65% 65%,rgba(248,113,113,.32),transparent 55%);
+}
+[data-bgfamily="warm"] #bg-l1-drift::after{
+  background:radial-gradient(circle at 25% 75%,rgba(252,211,77,.25),transparent 55%);
+}
+/* cool：蓝+青+绿，冷调（blue 底色） */
 [data-bgfamily="cool"] #bg-l1-drift{
-  background:
-    radial-gradient(circle at 20% 30%,rgba(45,95,211,.35),transparent 42%),
-    radial-gradient(circle at 80% 65%,rgba(122,85,192,.28),transparent 45%),
-    radial-gradient(circle at 50% 80%,rgba(91,126,225,.22),transparent 50%);
+  background:radial-gradient(circle at 30% 30%,rgba(45,95,211,.4),transparent 55%);
 }
+[data-bgfamily="cool"] #bg-l1-drift::before{
+  background:radial-gradient(circle at 65% 65%,rgba(34,211,238,.32),transparent 55%);
+}
+[data-bgfamily="cool"] #bg-l1-drift::after{
+  background:radial-gradient(circle at 25% 75%,rgba(49,155,119,.22),transparent 55%);
+}
+/* green：翠+青+黄绿，自然 */
 [data-bgfamily="green"] #bg-l1-drift{
-  background:
-    radial-gradient(circle at 25% 30%,rgba(31,160,106,.32),transparent 42%),
-    radial-gradient(circle at 75% 65%,rgba(67,176,154,.28),transparent 45%),
-    radial-gradient(circle at 50% 85%,rgba(136,196,110,.2),transparent 50%);
+  background:radial-gradient(circle at 30% 30%,rgba(74,222,128,.38),transparent 55%);
+}
+[data-bgfamily="green"] #bg-l1-drift::before{
+  background:radial-gradient(circle at 65% 65%,rgba(45,212,191,.32),transparent 55%);
+}
+[data-bgfamily="green"] #bg-l1-drift::after{
+  background:radial-gradient(circle at 25% 75%,rgba(190,242,100,.22),transparent 55%);
 }
 [data-theme="dark"] #bg-l1-drift{opacity:.7}
 
-/* --- L2 Mica：半透明，漂移色 + 底色透出（F2: 从94%降到82%修复漂移不可见） --- */
+/* --- L2 Mica：降到66%让流光更通透 --- */
 [data-variant="fluent"] #bg-l2-mica{
-  background:linear-gradient(180deg,rgba(250,250,252,.82),rgba(246,248,252,.78));
+  background:linear-gradient(180deg,rgba(250,250,252,.66),rgba(246,248,252,.62));
 }
 [data-theme="dark"][data-variant="fluent"] #bg-l2-mica{
-  background:linear-gradient(180deg,rgba(26,26,46,.85),rgba(21,27,42,.81));
+  background:linear-gradient(180deg,rgba(26,26,46,.68),rgba(21,27,42,.64));
 }
 [data-style="glass"] #bg-l2-mica{
-  background:linear-gradient(180deg,rgba(255,255,255,.72),rgba(248,250,255,.68));
+  background:linear-gradient(180deg,rgba(255,255,255,.56),rgba(248,250,255,.52));
 }
 [data-theme="dark"][data-style="glass"] #bg-l2-mica{
-  background:linear-gradient(180deg,rgba(31,37,51,.72),rgba(26,32,46,.68));
+  background:linear-gradient(180deg,rgba(31,37,51,.56),rgba(26,32,46,.52));
 }
 [data-variant="neumorph"] #bg-l2-mica{background:#f2f3f6}
 [data-theme="dark"][data-variant="neumorph"] #bg-l2-mica{background:#2e2e34}

@@ -161,6 +161,33 @@ function applyTaskbarIcon() {
   return { ok: true, path: iconPath };
 }
 
+/* K5: 自动安装 zhijian-ai skill 到用户 ~/.agents/skills/ 目录。
+   skill 覆盖两个方向：AI 操作画布 + AI 读取 .fantin 生成报告。 */
+function installFantinSkill() {
+  try {
+    var skillSrc = path.join(process.resourcesPath, ".agents", "skills", "zhijian-ai");
+    if (!fs.existsSync(skillSrc)) return;
+    var homeDir = app.getPath("home");
+    var skillDst = path.join(homeDir, ".agents", "skills", "zhijian-ai");
+    /* 已安装则跳过（用户可能手动修改过） */
+    if (fs.existsSync(path.join(skillDst, "SKILL.md"))) return;
+    /* 递归复制 */
+    function copyDir(src, dst) {
+      if (!fs.existsSync(dst)) fs.mkdirSync(dst, { recursive: true });
+      for (var entry of fs.readdirSync(src, { withFileTypes: true })) {
+        var sp = path.join(src, entry.name);
+        var dp = path.join(dst, entry.name);
+        if (entry.isDirectory()) copyDir(sp, dp);
+        else fs.copyFileSync(sp, dp);
+      }
+    }
+    copyDir(skillSrc, skillDst);
+    console.log("fantin-report skill installed to", skillDst);
+  } catch (e) {
+    console.error("skill install failed:", e.message);
+  }
+}
+
 function createWindow() {
   win = new BrowserWindow({
     width: 1440,
@@ -182,7 +209,7 @@ function createWindow() {
   /* G9: 打包后用 extraResources 路径，开发时用相对路径 */
   const htmlPath = app.isPackaged
     ? path.join(process.resourcesPath, "index.html")
-    : path.join(__dirname, "../../织见-思维关系板-I9.html");
+    : path.join(__dirname, "../../织见-思维关系板-K5.html");
   win.loadFile(htmlPath);
 
   /* I5-fix: 外链只放行 http(s)（file://、ms-msdt: 等协议一律不开），页内顶层导航一律拦下转外开 */
@@ -200,6 +227,9 @@ function createWindow() {
 
   /* G11: 任务栏图标按风格+预设+系统主题设置 */
   applyTaskbarIcon();
+
+  /* K5: 自动安装 fantin-report skill 到用户目录 */
+  installFantinSkill();
 
   nativeTheme.on("updated", () => {
     /* 系统主题变化：切换任务栏图标 + 通知页面（如果 autoTheme 开启） */

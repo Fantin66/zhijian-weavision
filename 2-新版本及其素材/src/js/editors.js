@@ -715,7 +715,7 @@ function syncDetailReadDom(){
     /* 测量与自适应高度（per-item） */
     const layout=detailLayoutMap.get(it.id);
     const measureKey=it.id+":"+it.detail+":"+Math.round(b.w);
-    if(layout&&!layout.closing&&layout.measureKey!==measureKey){
+    if(layout&&!layout.closing&&layout.measureKey!==measureKey&&it.detail){
       layout.measureKey=measureKey;
       requestAnimationFrame(()=>{
         const dl=detailLayoutMap.get(it.id);

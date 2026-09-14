@@ -343,18 +343,18 @@ function applyFontPreset(){
 
 /* E5: Logo system — 3 icon sets. G1: paths use g1/ prefix (HTML is in parent dir) */
 const LOGO_PRESETS={
-  1:{label:"穿线元素",light:"g10/assets/logos/logo1-light.png",dark:"g10/assets/logos/logo1-dark.png",
-     cnLight:"g10/assets/logos/logo01-中文字标-light.png",cnDark:"g10/assets/logos/logo01-中文字标-dark.png",
-     enLight:"g10/assets/logos/logo01-英文字标-light.png",enDark:"g10/assets/logos/logo01-英文字标-dark.png",
-     comboLight:"g10/assets/logos/logo01-横版组合-light.png",comboDark:"g10/assets/logos/logo01-横版组合-dark.png"},
-  2:{label:"聚焦轨道",light:"g10/assets/logos/logo2-light.png",dark:"g10/assets/logos/logo2-dark.png",
-     cnLight:"g10/assets/logos/logo02-中文字标-light.png",cnDark:"g10/assets/logos/logo02-中文字标-dark.png",
-     enLight:"g10/assets/logos/logo02-英文字标-light.png",enDark:"g10/assets/logos/logo02-英文字标-dark.png",
-     comboLight:"g10/assets/logos/logo02-横版组合-light.png",comboDark:"g10/assets/logos/logo02-横版组合-dark.png"},
-  3:{label:"叠合元素",light:"g10/assets/logos/logo3-light.png",dark:"g10/assets/logos/logo3-dark.png",
-     cnLight:"g10/assets/logos/logo03-中文字标-light.png",cnDark:"g10/assets/logos/logo03-中文字标-dark.png",
-     enLight:"g10/assets/logos/logo03-英文字标-light.png",enDark:"g10/assets/logos/logo03-英文字标-dark.png",
-     comboLight:"g10/assets/logos/logo03-横版组合-light.png",comboDark:"g10/assets/logos/logo03-横版组合-dark.png"},
+  1:{label:"穿线元素",light:"src/assets/logos/logo1-light.png",dark:"src/assets/logos/logo1-dark.png",
+     cnLight:"src/assets/logos/logo01-中文字标-light.png",cnDark:"src/assets/logos/logo01-中文字标-dark.png",
+     enLight:"src/assets/logos/logo01-英文字标-light.png",enDark:"src/assets/logos/logo01-英文字标-dark.png",
+     comboLight:"src/assets/logos/logo01-横版组合-light.png",comboDark:"src/assets/logos/logo01-横版组合-dark.png"},
+  2:{label:"聚焦轨道",light:"src/assets/logos/logo2-light.png",dark:"src/assets/logos/logo2-dark.png",
+     cnLight:"src/assets/logos/logo02-中文字标-light.png",cnDark:"src/assets/logos/logo02-中文字标-dark.png",
+     enLight:"src/assets/logos/logo02-英文字标-light.png",enDark:"src/assets/logos/logo02-英文字标-dark.png",
+     comboLight:"src/assets/logos/logo02-横版组合-light.png",comboDark:"src/assets/logos/logo02-横版组合-dark.png"},
+  3:{label:"叠合元素",light:"src/assets/logos/logo3-light.png",dark:"src/assets/logos/logo3-dark.png",
+     cnLight:"src/assets/logos/logo03-中文字标-light.png",cnDark:"src/assets/logos/logo03-中文字标-dark.png",
+     enLight:"src/assets/logos/logo03-英文字标-light.png",enDark:"src/assets/logos/logo03-英文字标-dark.png",
+     comboLight:"src/assets/logos/logo03-横版组合-light.png",comboDark:"src/assets/logos/logo03-横版组合-dark.png"},
 };
 let logoPreset=3;
 function applyLogo(n,showToast){
@@ -572,6 +572,12 @@ document.addEventListener("keydown",e=>{
   if(e.key==="F11"){
     e.preventDefault();
     toggleImmersive();
+    return;
+  }
+  /* J4: 原生全屏：Alt+Enter 切换窗口全屏 */
+  if(e.altKey&&!e.ctrlKey&&!e.metaKey&&e.key==="Enter"){
+    e.preventDefault();
+    if(window.electronAPI&&window.electronAPI.toggleFullscreen)window.electronAPI.toggleFullscreen();
     return;
   }
   /* A 键：添加批注 */
@@ -843,6 +849,7 @@ function mountControls(){
       {icon:"",label:"凝视（100%居中）",key:"G",fn:()=>gazeAtSelection()},
       {icon:"",label:"纵览（全部内容）",key:"Y",fn:()=>fitAll()},
       {icon:"",label:"沉浸模式",key:"F11",fn:()=>toggleImmersive()},
+      {icon:"",label:"全屏",key:"Alt+Enter",fn:()=>{if(window.electronAPI&&window.electronAPI.toggleFullscreen)window.electronAPI.toggleFullscreen();}},
       {sep:true},
       {icon:"",label:"重置织见学堂",key:"",fn:()=>resetTutorial()},
       {icon:"",label:"设置",key:"",fn:()=>showSettings()},
@@ -1657,7 +1664,7 @@ init();
   var sl=parseInt(localStorage.getItem("zhijian-logo"))||3;
   var preset=LOGO_PRESETS[sl]||LOGO_PRESETS[3];
   var img=document.querySelector(".splash-logo");
-  if(img)img.src="g10/assets/logos/splash-"+sl+".png";  /* G1: 用透明母版 icon */
+  if(img)img.src="src/assets/logos/splash-"+sl+".png";  /* G1: 用透明母版 icon */
 })();
 /* ResizeObserver 持续监听 board 尺寸变化（CSS transition/窗口变化/响应式折叠都覆盖） */
 
@@ -1783,7 +1790,7 @@ function renderSettingsContent(catId,content){
       '<div style="font-size:11px;color:var(--ink-faint)">开启后背景有缓慢漂浮的色块（其他动画不受影响）</div></div>'+
       '<div style="margin-bottom:20px"><div style="font-size:12px;color:var(--ink-dim);margin-bottom:8px">Fantin 文件图标</div>'+
       '<div style="display:flex;gap:12px">'+
-      [1,2,3].map(function(n){var on=(state.fantinIcon||2)===n;return '<div class="fantinIconBtn" data-n="'+n+'" style="flex:1;cursor:pointer;padding:12px;border:2px solid '+(on?"var(--accent)":"var(--card-border)")+';border-radius:12px;text-align:center;transition:all .15s ease"><img src="i6/assets/icons/fantin-'+n+'.ico" style="width:48px;height:48px;object-fit:contain;margin-bottom:8px"><div style="font-size:11px;font-weight:600;color:'+(on?"var(--accent)":"var(--ink-dim)")+'">第'+n+'张</div></div>';}).join("")+
+      [1,2,3].map(function(n){var on=(state.fantinIcon||2)===n;return '<div class="fantinIconBtn" data-n="'+n+'" style="flex:1;cursor:pointer;padding:12px;border:2px solid '+(on?"var(--accent)":"var(--card-border)")+';border-radius:12px;text-align:center;transition:all .15s ease"><img src="src/assets/icons/fantin-'+n+'.ico" style="width:48px;height:48px;object-fit:contain;margin-bottom:8px"><div style="font-size:11px;font-weight:600;color:'+(on?"var(--accent)":"var(--ink-dim)")+'">第'+n+'张</div></div>';}).join("")+
       '</div><div style="font-size:11px;color:var(--ink-faint);margin-top:6px">点击即实时生效（写注册表 + 刷新缓存，无需重装）</div></div>'+
       '<div style="margin-bottom:20px"><div style="font-size:12px;color:var(--ink-dim);margin-bottom:8px">默认样式（新建项目时）</div>'+
       '<div style="font-size:12px;color:var(--ink-faint)">未来可选：默认使用哪种视觉样式</div></div>'+
@@ -1887,6 +1894,7 @@ function renderSettingsContent(catId,content){
       ["凝视(100%)","G",""],
       ["纵览全部","Y",""],
       ["沉浸模式","F11 / Alt+F",""],
+      ["全屏","Alt+Enter","原生窗口全屏"],
       ["跃迁到画布","J",""],
       ["搜索","Ctrl+F",""],
       ["","",""],
@@ -1907,16 +1915,21 @@ function renderSettingsContent(catId,content){
   else if(catId==="ai"){
     content.innerHTML=
       '<h4 style="margin:0 0 16px;font-size:14px">AI 设置</h4>'+
-      '<div style="margin-bottom:20px"><div style="font-size:12px;color:var(--ink-dim);margin-bottom:6px">AI Skill 导出</div>'+
-      '<div style="font-size:12px;color:var(--ink);margin-bottom:8px">导出当前应用的 AI 接口工具包，供外部 AI 调用织见的功能。</div>'+
-      '<button id="exportAISkill" style="padding:8px 16px;border:1px solid var(--accent);border-radius:8px;background:var(--accent-soft);color:var(--accent);cursor:pointer;font:600 12px var(--font)">导出 AI Skill</button>'+
-      '</div>'+
+      '<div style="margin-bottom:20px"><div style="font-size:12px;color:var(--ink-dim);margin-bottom:6px">AI 完整指引</div>'+
+      '<div style="font-size:12px;color:var(--ink);margin-bottom:8px">导出完整 AI 指引文档，包含两部分：(1) 操作画布——ZhijianAI 37 个命令接口；(2) 读取 .fantin 文件——解析脚本 + 报告生成工作流。导出后连同 .fantin 文件发给任意 AI agent 即可。</div>'+
+      '<div style="display:flex;gap:8px;flex-wrap:wrap">'+
+      '<button id="exportAISkill" style="padding:8px 16px;border:1px solid var(--accent);border-radius:8px;background:var(--accent-soft);color:var(--accent);cursor:pointer;font:600 12px var(--font)">导出完整指引</button>'+
+      '<button id="copyReportGuide" style="padding:8px 16px;border:1px solid var(--card-border);border-radius:8px;background:var(--surface);color:var(--ink);cursor:pointer;font:600 12px var(--font)">复制报告指引到剪贴板</button>'+
+      '</div></div>'+
       '<div style="margin-bottom:20px"><div style="font-size:12px;color:var(--ink-dim);margin-bottom:6px">AI 接口</div>'+
       '<div style="font-size:12px;color:var(--ink)">当前接口：ZhijianAI v1.3（37 个操作，支持批量+回滚+形变控制）</div>'+
       '</div>'+
       '<div style="margin-bottom:20px"><div style="font-size:12px;color:var(--ink-dim);margin-bottom:6px">未来功能（预留）</div>'+
       '<div style="font-size:11px;color:var(--ink-faint)">· 自主建图（AI 自主构建思维关系板）<br>· 关系类型自动标注<br>· 投资建议书一键导出<br>· 多模型接入配置</div></div>';
     var eb=content.querySelector("#exportAISkill");
+    /* K2: 报告生成指引 + 解析脚本（导出和复制共用） */
+    var PARSE_SCRIPT='#!/usr/bin/env node\nconst fs=require("fs");const d=JSON.parse(fs.readFileSync(process.argv[2],"utf8"));\nfunction nm(it,fm){if(it.type==="fileCard"&&it.fileId){var f=fm.find(function(m){return m.oldId===it.fileId});return"[附件] "+(f?f.name:"未知")}\nif(it.type==="note")return"[便签] "+(it.text||"").slice(0,40);return it.text||"(空)"}\nfunction tree(items,fm,nameMap,item,depth){var pad="  ".repeat(depth);var line=pad+(nameMap[item.id]||"(空)");\nif(item.annotation)line+=" //批注："+item.annotation;if(item.detail)line+=" [展开"+item.detail.length+"字]";console.log(line);\nitems.filter(function(i){return i.parentId===item.id}).forEach(function(c){tree(items,fm,nameMap,c,depth+1)})}\nconsole.log("=== 项目："+d.projectName+" ===");\nfor(var c of d.canvases){var items=c.items||[],links=c.links||[];var fm=d.fileMeta||[];\nvar nameMap={};items.forEach(function(it){nameMap[it.id]=nm(it,fm)});\nconsole.log("\\n--- 画布："+c.name+"（"+items.length+"元素 "+links.length+"连线）---");\nconsole.log("\\n[层级结构]");\nitems.filter(function(i){return !i.parentId||!items.some(function(p){return p.id===i.parentId})}).forEach(function(r){tree(items,fm,nameMap,r,0)});\nif(links.length){console.log("\\n[语义连线]");links.forEach(function(l){console.log((nameMap[l.aId]||l.aId).slice(0,40)+" --["+l.relationType+"]--> "+(nameMap[l.bId]||l.bId).slice(0,40)+(l.annotation?" //"+l.annotation:""))})}\nvar ann=items.filter(function(i){return i.annotation});if(ann.length){console.log("\\n[批注]");ann.forEach(function(i){console.log((nameMap[i.id]||i.id)+"："+i.annotation)})}\nvar notes=items.filter(function(i){return i.type==="note"});if(notes.length){console.log("\\n[便签]");notes.forEach(function(n){console.log(n.text)})}}\nif(d.fileMeta&&d.fileMeta.length){console.log("\\n[附件清单]");d.fileMeta.forEach(function(f,i){console.log((i+1)+". "+f.name+" ("+(f.kind||"unknown")+")")})}';
+    var reportGuide="\n\n---\n\n## 二、AI 读取 .fantin 生成报告\n\n### 素材边界铁律\n\n可联网查资料以辅助理解 .fantin 文件中的概念和关系，但报告的最终内容必须且只能来自 data.json 和附件原文。外部知识仅用于辅助理解，不可写入报告。每条数据、结论都标注来源。\n\n### 工作流程\n\n1. 解压 .fantin（ZIP 格式）：unzip xxx.fantin -d /tmp/fantin/\n2. 读 data.json（画布关系结构：节点、连线、层级、批注）\n3. 运行解析脚本（见下方），输出 AI 友好的关系网络文本\n4. 读 attachments/ 目录下所有 .md 文件全文\n5. 二进制附件（docx/xlsx/png）尝试转换读取，读不了用文件名标注\n6. 按关系网络层级组织报告，引用处加超链接和来源标注\n7. 报告保存到解压目录，超链接用相对路径 attachments/文件名\n\n### 数据来源标注格式\n\n> 数据来源：[附件名](attachments/附件名.md)\n> 画布批注：批注内容\n> 画布便签：便签内容\n\n### 关系类型对照\n\nrelated=关联 / supports=支撑 / causes=导致 / contradicts=反证 / evidence=证据\n\nparentId 构成层级树（不在 links 里），links 是跨层级语义连线，fileCard 的 fileId 指向 fileMeta 获取文件名。三种关系系统都要在报告中体现。\n\n### 解析脚本\n\n将以下脚本保存为 parse-fantin.js，运行 node parse-fantin.js data.json：\n\n~~~js\n"+PARSE_SCRIPT+"\n~~~\n\n### 报告要求\n\n- 全部元素都要用上（每个节点、附件、便签、批注）\n- 按层级树组织章节（根节点→章，子节点→节）\n- 语义连线在对应章节标注元素间关系\n- 附件内容填入对应章节，引用处加超链接\n- 报告末尾加附录：全部附件索引表\n";
     if(eb)eb.onclick=function(){
       /* G3: 生成 AI Skill 文件并下载 */
       var stylesStr="";
@@ -1941,6 +1954,7 @@ function renderSettingsContent(catId,content){
       skill+="## 布局类型（layout）\nright（逻辑图）、org（组织架构）、u（U型）、fishbone（鱼骨图）、timeline（时间轴）、brace（总分）\n\n";
       skill+="## 可用样式（set_style 的 style 值）\n"+stylesStr+"\n";
       skill+="## Slogan\n\n织连万象，见聚一隅。\nWeave the many, See the one.\n";
+      skill+=reportGuide;
       var blob=new Blob([skill],{type:"text/markdown;charset=utf-8"});
       var url=URL.createObjectURL(blob);
       var a=document.createElement("a");
@@ -1948,6 +1962,13 @@ function renderSettingsContent(catId,content){
       document.body.appendChild(a);a.click();a.remove();
       setTimeout(function(){URL.revokeObjectURL(url);},1000);
       toast("AI Skill 已导出");
+    };
+    var cb=content.querySelector("#copyReportGuide");
+    if(cb)cb.onclick=function(){
+      if(navigator.clipboard&&navigator.clipboard.writeText){
+        navigator.clipboard.writeText(reportGuide).then(function(){toast("指引已复制到剪贴板");}).catch(function(){fallbackCopy(reportGuide);});
+      }else{fallbackCopy(reportGuide);}
+      function fallbackCopy(text){var ta2=document.createElement("textarea");ta2.value=text;ta2.style.position="fixed";ta2.style.opacity="0";document.body.appendChild(ta2);ta2.select();try{document.execCommand("copy");toast("指引已复制到剪贴板");}catch(e){toast("复制失败，请手动选取");}ta2.remove();}
     };
   }
   else if(catId==="about"){
