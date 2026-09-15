@@ -322,14 +322,12 @@ function render(){
      mind 键由 drawMindConnections 按需复用，节点删除时另行清理 */
   if(linkAnimMap.size){
     const live=new Set(state.links.map(l=>l.id));
+    const liveMind=new Set();
+    for(const item of state.items){if(item.type==="mindNode"&&item.parentId)liveMind.add("mind:"+item.parentId+":"+item.id);}
     for(const [lid] of linkAnimMap){
       if(lid.indexOf("mind:")===0){
-        /* 校验导图连线两端节点是否仍存在（id 数值/字符串统一为 Number 比较） */
-        const parts=lid.split(":");
-        const pId=Number(parts[1]),cId=Number(parts[2]);
-        const pOk=state.items.some(i=>i.id===pId);
-        const cOk=state.items.some(i=>i.id===cId);
-        if(!pOk||!cOk)linkAnimMap.delete(lid);
+        /* K7：一次构造存活关系集合，避免每条线再扫描整张画布。 */
+        if(!liveMind.has(lid))linkAnimMap.delete(lid);
       }else if(!live.has(lid)){
         linkAnimMap.delete(lid);
       }
