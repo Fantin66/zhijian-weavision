@@ -65,7 +65,7 @@ function setupAutoSave(){
 }
 /* I5: 统一版本标签——网页与桌面共用一个来源（桌面端异步取 package.json 版本号，
    修复关于页把 Promise 拼进字符串显示"v[object Promise]"、网页端回退旧标签"G3"的问题） */
-let APP_VERSION="K8.1";
+let APP_VERSION="K8.2";
 if(window.electronAPI&&window.electronAPI.getVersion){
   try{window.electronAPI.getVersion().then(function(v){if(v)APP_VERSION="v"+v;}).catch(function(){});}catch(e){}
 }

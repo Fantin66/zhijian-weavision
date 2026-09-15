@@ -155,6 +155,7 @@ function inspectRelations(project){
     for(const i of c.items){
       if(i.parentId){connected.add(i.id);connected.add(i.parentId);if(!ids.has(i.parentId))add("父节点已不存在",i);}
       if(i.fileId&&!project.files.some(f=>f.id===i.fileId))add("材料卡片缺少附件记录",i);
+      if(i.sourceRef&&(i.sourceRef.missing||(i.sourceRef.fileId&&!project.files.some(f=>f.id===i.sourceRef.fileId))))add("摘录来源附件已不存在",i);
       if(i.jumpTo){const ref=typeof i.jumpTo==="string"?{canvasId:i.jumpTo}:i.jumpTo;const p=state.projects.find(p=>p.id===(ref.projectId||project.id)),target=p?.canvases.find(b=>b.id===ref.canvasId);if(!target||(ref.itemId&&!target.items.some(n=>n.id===ref.itemId)))add("跃迁目标已不存在",i);}
       const seen=new Set([i.id]);let ancestor=i;while(ancestor?.parentId){if(seen.has(ancestor.parentId)){add("父子关系存在循环",i);break;}seen.add(ancestor.parentId);ancestor=ids.get(ancestor.parentId);}
     }
@@ -179,10 +180,10 @@ function editSourceRef(selection){
   }}]);
 }
 async function openSourceRef(selection){
-  const ref=state.links.find(l=>l.id===selection.id)?.sourceRef;if(!ref){editSourceRef(selection);return;}
+  const ref=selection.sourceRef||state.links.find(l=>l.id===selection.id)?.sourceRef;if(!ref){editSourceRef(selection);return;}
   if(ref.url){if(!/^https?:\/\//i.test(ref.url)){toast("来源网页地址无效");return;}window.open(ref.url,"_blank","noopener");return;}
   const f=state.files.find(f=>f.id===ref.fileId);if(!f){toast("来源附件已不存在");return;}
-  openFullscreen(f,{sourcePage:ref.page,sourceQuote:ref.quote});
+  openFullscreen(f,{sourcePage:ref.page,sourceQuote:ref.quote,sourceAnchor:ref.anchor});
 }
 function initK6(){
   updateSaveStatus("saved");
@@ -191,8 +192,6 @@ function initK6(){
   const menu=document.createElement("button");menu.type="button";menu.className="k6-check";menu.textContent="关系检查";menu.onclick=showRelationCheck;document.body.appendChild(menu);
 }
 
-function highlightSourceQuote(container,quote){
-  if(!quote)return;const walker=document.createTreeWalker(container,NodeFilter.SHOW_TEXT);let node;
-  while((node=walker.nextNode())){const index=node.textContent.indexOf(quote);if(index<0)continue;const range=document.createRange();range.setStart(node,index);range.setEnd(node,index+quote.length);const mark=document.createElement("mark");mark.className="k6-source-highlight";range.surroundContents(mark);mark.scrollIntoView({block:"center"});return;}
-  toast("已打开来源，未找到完全匹配的摘录");
+function highlightSourceQuote(container,quote,anchor){
+  if(quote)highlightExcerptSource(container,quote,anchor);
 }

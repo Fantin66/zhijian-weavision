@@ -2253,5 +2253,6 @@ body.reduced-motion #bg-l2-mica{
 .k6-tools{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:18px}.k6-list-row{display:block;width:100%;text-align:left;padding:12px;margin:6px 0;background:var(--surface);color:var(--ink);border:1px solid var(--card-border);border-radius:8px;cursor:pointer;font:13px var(--font)}
 .k6-progress{position:fixed;bottom:52px;right:16px;z-index:10000;background:var(--surface);color:var(--ink);padding:14px;border:1px solid var(--card-border);border-radius:10px;box-shadow:0 4px 22px #0002}.k6-progress[hidden]{display:none}.k6-progress button{margin-left:20px}.k6-source-highlight{background:#ffe08a;color:#202020}
 .fullscreen-active .k6-check,.fullscreen-active .k6-save{display:none}
+.excerpt-drop-hint{position:fixed;pointer-events:none;z-index:10001;padding:9px 12px;border-radius:8px;background:var(--surface);color:var(--ink);border:1px solid var(--accent);box-shadow:var(--shadow-sm);font:12px var(--font)}
 [data-theme="dark"] #topbar #exportBtn,[data-theme="dark"] #topbar #importBtn{background:var(--surface)!important;color:var(--ink)!important;border:1px solid var(--card-border)!important;box-shadow:none!important}
 [data-theme="dark"] #topbar #exportBtn:hover,[data-theme="dark"] #topbar #importBtn:hover{background:var(--accent-soft)!important;color:var(--accent)!important}

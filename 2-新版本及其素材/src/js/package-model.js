@@ -7,6 +7,7 @@
     if(!canvases.length)throw new Error("没有可导出的画布");
     const used=new Set();
     for(const c of canvases){for(const i of c.items||[])if(i.fileId)used.add(i.fileId);for(const p of c.previews||[])if(p.fileId)used.add(p.fileId);for(const l of c.links||[])if(l.sourceRef?.fileId)used.add(l.sourceRef.fileId);}
+    for(const c of canvases)for(const i of c.items||[])if(i.sourceRef?.fileId)used.add(i.sourceRef.fileId);
     const files=project.files.filter(f=>!canvasId||used.has(f.id));
     for(const id of used)if(!project.files.some(f=>f.id===id))throw new Error("附件记录缺失："+id);
     const selected=new Set(canvases.map(c=>c.id));
@@ -41,6 +42,7 @@
         if(i.parentId!=null)i.parentId=m.get(i.parentId)||null;
         for(const field of ["children","attachIds"])if(i[field])i[field]=i[field].map(id=>m.get(id)).filter(id=>id!=null);
         if(i.fileId){if(!fm.has(i.fileId))throw new Error("材料卡片缺少附件");i.fileId=fm.get(i.fileId);}
+        if(i.sourceRef?.fileId){if(!fm.has(i.sourceRef.fileId))throw new Error("摘录缺少来源附件");i.sourceRef.fileId=fm.get(i.sourceRef.fileId);}
         if(i.type==="connector")for(const field of ["a","b"]){const v=i[field];if(v&&typeof v==="object"){if(v.noteId!=null)v.noteId=m.get(v.noteId)||null;}else if(v!=null)i[field]=m.get(v)||null;}
         if(i.jumpTo){const j=typeof i.jumpTo==="string"?{canvasId:i.jumpTo}:i.jumpTo;i.jumpTo=cm.has(j.canvasId)?{canvasId:cm.get(j.canvasId),itemId:maps.get(j.canvasId).get(j.itemId)||null}:null;}
         return i;

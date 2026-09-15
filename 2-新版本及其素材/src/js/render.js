@@ -386,7 +386,7 @@ function syncPvContentZoom(el,pv,z){
 /* ============================================================
    左热区/Dock 相关同步（保留原 syncMorphDom）
 ============================================================ */
-function previewInteractionActive(){return !!(state._camInteracting||(drag&&["pan","move","resize"].includes(drag.mode)));}
+function previewInteractionActive(){return !!(state._camInteracting||(drag&&drag.previewMoved&&["pan","move","resize"].includes(drag.mode)));}
 function syncMorphDom(){
   if(previewInteractionActive())return;
   /* 防御：扫描 previewLayer 中的孤儿 .pv-morph 元素（不在 morphMap 中的残留覆盖层），

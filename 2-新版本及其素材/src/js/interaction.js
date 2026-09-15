@@ -343,6 +343,7 @@ function onPointerMove(e){
   const wpt=s2w(sx,sy);
   state.mouseWorld=wpt;
   if(!drag) return;
+  if(["pan","move","resize"].includes(drag.mode))drag.previewMoved=true;
   if(drag.mode==="pan"){
     state.camera.x-=(sx-drag.lastX)/state.camera.zoom;
     state.camera.y-=(sy-drag.lastY)/state.camera.zoom;
@@ -424,6 +425,7 @@ function onPointerUp(e){
   if(!drag) return;
   const d=drag;
   drag=null;
+  requestRender(); /* 包括空白点击、平移和 pointercancel，都必须恢复预览。 */
   board.classList.remove("panning");
   /* I5-fix: 未发生位移的拖拽（纯点击）放弃延迟快照；连线拖空失败同样不入栈 */
   if(_deferredHistory!==undefined&&(d.mode==="move"||d.mode==="resize"||d.mode==="mindLink"))cancelDeferredHistory();
@@ -603,7 +605,10 @@ function removeFile(id){
       const removedIds=new Set((canvas.items||[]).filter(it=>it.type==="fileCard"&&it.fileId===id).map(it=>it.id));
       canvas.items=(canvas.items||[]).filter(it=>!removedIds.has(it.id));
       canvas.links=(canvas.links||[]).filter(link=>!removedIds.has(link.aId)&&!removedIds.has(link.bId));
-      for(const node of canvas.items){if(node.type==="mindNode")node.attachIds=(node.attachIds||[]).filter(a=>!removedIds.has(a));}
+      for(const node of canvas.items){
+        if(node.type==="mindNode")node.attachIds=(node.attachIds||[]).filter(a=>!removedIds.has(a));
+        if(node.sourceRef?.fileId===id)node.sourceRef={...node.sourceRef,fileId:null,missing:true};
+      }
     }
   }
   cleanupProjectReferences();
@@ -892,7 +897,9 @@ function renderFileItem(f){
   return item;
 }
 /* 拖拽文件放到画布 */
-board.addEventListener("dragover",e=>{e.preventDefault();dropOverlay.style.display="flex";});
+board.addEventListener("dragover",e=>{
+  if(e.dataTransfer&&[...e.dataTransfer.types].some(t=>t==="Files"||t==="application/x-board-file")){e.preventDefault();dropOverlay.style.display="flex";}
+});
 board.addEventListener("dragleave",e=>{dropOverlay.style.display="none";});
 board.addEventListener("drop",e=>{
   e.preventDefault();

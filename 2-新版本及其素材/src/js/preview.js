@@ -264,6 +264,7 @@ function syncPvDom(){
   }
 }
 function renderPvContent(pv,f,body){
+  body.dataset.sourceFileId=f?.id||"";
   if(!f){body.innerHTML='<div class="pv-msg"><span class="big">⚠️</span>文件不存在</div>';return;}
   const kick=(url,type)=>{
     if(type==="img"){
@@ -428,9 +429,10 @@ function ensureMorphDom(it){
   tools.innerHTML='<span class="pv-morph-name"></span><button class="pv-morph-zo" title="缩小预览">−</button><button class="pv-morph-zoom" title="恢复 100%">100%</button><button class="pv-morph-zi" title="放大预览">+</button><button class="pv-morph-fullscreen" title="全屏预览">⤢</button><button class="pv-morph-open" title="使用电脑默认应用打开">默认打开</button><button class="pv-morph-close" title="收起预览" aria-label="收起预览">⌃</button>';
   tools.querySelector(".pv-morph-name").textContent=f.name;
   if(f.kind==="text"||f.kind==="doc"){
-    const hint=document.createElement("span");hint.className="pv-selection-hint";hint.textContent="选中文字后 Ctrl+C 复制";hint.title="可粘贴到便签、节点详情或其他应用。选中不会修改附件，也不会自动生成引用。";tools.querySelector(".pv-morph-name").after(hint);
+    const hint=document.createElement("span");hint.className="pv-selection-hint";hint.textContent="选字拖到画布可摘录";hint.title="选中文字拖到画布空白处，创建带原文来源的便签；也可 Ctrl+C 复制。";tools.querySelector(".pv-morph-name").after(hint);
   }
   const body=document.createElement("div");body.className="pv-morph-content";
+  body.dataset.sourceFileId=f.id;
   const applyZoom=value=>{
     const zoom=clamp(value,.35,3);
     /* G7: doc 缩放全权交给 fitDocxPreview 用 CSS zoom 处理（像图片等比缩小）；
@@ -784,6 +786,7 @@ function openFullscreen(fileIdOrItem,options={}){
   const fv=document.getElementById("fullscreenView");
   const controls=fullscreenControls();
   const body=fv.querySelector(".fv-body");
+  body.dataset.sourceFileId=f.id;
   const title=controls&&controls.querySelector(".fv-title");
   fv.classList.remove("editor-view");
   controls&&controls.querySelectorAll(".fv-mode").forEach(button=>button.classList.add("hidden"));
@@ -894,6 +897,7 @@ function openFullscreen(fileIdOrItem,options={}){
             pre.textContent=t;
             body.appendChild(pre);
           }
+          highlightSourceQuote(body,options.sourceQuote,options.sourceAnchor);
         });
       }).catch(()=>{if(fullscreenToken===myToken)body.innerHTML='<div class="pv-msg">文本读取失败</div>';});
       return;
@@ -903,7 +907,7 @@ function openFullscreen(fileIdOrItem,options={}){
         if(fullscreenToken!==myToken)return;
         if(!b){body.innerHTML='<div class="pv-msg">文件不存在</div>';return;}
         if(!f._url)f._url=URL.createObjectURL(b);
-        if(f.kind==="doc")renderDocx(b,body,f.name).then(()=>highlightSourceQuote(body,options.sourceQuote));
+        if(f.kind==="doc")renderDocx(b,body,f.name).then(()=>{if(fullscreenToken===myToken)highlightSourceQuote(body,options.sourceQuote,options.sourceAnchor);});
         else if(f.kind==="sheet")renderSheet(b,body);
         else if(f.kind==="pdf")renderPdf(b,body,{paginate:true,initialPage:options.sourcePage||1,fitToWidth:true});
         else if(f.kind==="slide")renderPptx(b,body);
@@ -957,6 +961,7 @@ function closeFullscreen(){
 }
 /* 便签全屏预览（内容按 Markdown 完整渲染）—— 升级为 Typora 式双模式编辑器 */
 function openFullscreenNote(note){
+  delete document.querySelector("#fullscreenView .fv-body").dataset.sourceFileId;
   return openMdFullscreenEditor({
     title:(note.text?note.text.replace(/\n.*$/s,"").slice(0,32):"便签")+" · 便签编辑",
     initial:note.text||"",

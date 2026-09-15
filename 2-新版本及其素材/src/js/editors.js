@@ -106,6 +106,7 @@ function dockContent(st){
       out.push(dkBtn({icon:ICON.plus,label:"子级",title:"新建子级 (Tab)",fn:()=>addChildMind(sel)}));
       out.push(dkBtn({icon:ICON.plus,label:"同级",title:"新建同级 (Enter)",fn:()=>addSiblingMind(sel)}));
     }else if(sel.type==="note"||sel.type==="fileCard"){
+      if(sel.type==="note"&&sel.sourceRef)out.push(dkBtn({icon:"↗",label:"查看来源",title:"打开附件并定位摘录原文",fn:()=>openSourceRef(sel)}));
       out.push(dkBtn({icon:ICON.connector,label:linkPendingId===sel.id?"取消连接":"连接",title:"连接选中 (C)",on:linkPendingId===sel.id,fn:()=>toggleLink()}));
       out.push(dkBtn({icon:ICON.focus,label:"聚焦",title:"聚焦 (F)",fn:()=>{state.selected=sel.id;enterFocus(sel.id);}}));
       out.push(dkBtn({icon:ICON.fullscreen,label:"全屏",title:"全屏预览 (Alt+F)",fn:()=>{

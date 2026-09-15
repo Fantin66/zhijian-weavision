@@ -18,6 +18,12 @@ test('missing attachments reject entire import; legacy name-based packages remai
  const p=project(),s=model.encode(p);assert.throws(()=>model.decode(s,[],x=>x),/附件缺失/);
  const old={version:'G4',canvases:[board('old')],fileMeta:[{oldId:'f',name:'old.txt',kind:'text'}]};assert.equal(model.decode(old,[{name:'old.txt',buffer:new Uint8Array([1])}],x=>x).files.length,1);
 });
+test('excerpt-only canvas exports its source and remaps the provenance on import',()=>{
+ const p=project();p.canvases=[board('c1',[{id:1,type:'note',text:'摘录',sourceRef:{fileId:'f2',quote:'原文',anchor:{start:5,prefix:'前文',suffix:'后文'}}}])];
+ const packed=model.encode(p,'c1');assert.equal(packed.fileMeta.length,1);assert.equal(packed.fileMeta[0].oldId,'f2');
+ let uid=1;const imported=model.decode(packed,[{name:packed.fileMeta[0].packageName,buffer:Buffer.from('source')}],prefix=>prefix+(uid++));
+ assert.equal(imported.canvases[0].items[0].sourceRef.fileId,imported.files[0].id);assert.equal(imported.canvases[0].items[0].sourceRef.anchor.prefix,'前文');
+});
 test('invalid graph cycles are rejected before import is committed',()=>{const p=project();p.files=[];p.canvases=[board('c',[{id:1,parentId:2},{id:2,parentId:1}])];assert.throws(()=>model.decode(model.encode(p),[],(()=>{let n=1;return p=>p+(n++);})()),/循环/);});
 function stateSandbox(){
  const src=fs.readFileSync(path.join(__dirname,'../src/js/state.js'),'utf8');
@@ -38,6 +44,11 @@ test('canvas move keeps existing attachment locations and excludes unrelated fol
  const ctx=stateSandbox();ctx.projects=[{id:'source',files:[{id:'used',folderId:'uploaded'},{id:'unrelated',folderId:'uploaded'}],canvases:[board('only',[{id:1,fileId:'used'}])]},{id:'target',folders:[{id:'keep',name:'已有资料'}],files:[{id:'used',folderId:'keep'}],canvases:[board('t')]}];
  vm.runInContext(`state.projects=projects;state.activeProjectId='source';state.activeCanvasId='only';moveCanvasToProject('only','target');`,ctx);
  assert.equal(ctx.projects[1].files.length,1);assert.equal(ctx.projects[1].files[0].folderId,'keep');assert.equal(ctx.projects[1].folders.length,1);assert.equal(ctx.projects[0].files.length,2);
+});
+test('moving excerpt-only canvas carries its source without a material card',()=>{
+ const ctx=stateSandbox();ctx.projects=[{id:'source',files:[{id:'f'}],canvases:[board('only',[{id:1,type:'note',sourceRef:{fileId:'f',quote:'original'}}])]},{id:'target',files:[],canvases:[board('t')]}];
+ vm.runInContext(`state.projects=projects;state.activeProjectId='source';state.activeCanvasId='only';moveCanvasToProject('only','target');`,ctx);
+ assert.equal(ctx.projects[1].files[0].id,'f');assert.equal(ctx.projects[1].canvases[1].items[0].sourceRef.fileId,'f');
 });
 function worker(job){return new Promise((resolve,reject)=>{const w=new Worker(path.join(__dirname,'../desktop/electron/package-worker.js'),{workerData:job});w.on('message',m=>{if(m.committing)w.postMessage({commit:true});if(m.result)resolve(m.result);});w.on('error',reject);});}
 test('worker writes and reads distinct same-name originals and rejects collisions',async()=>{

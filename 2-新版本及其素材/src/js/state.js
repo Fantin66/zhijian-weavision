@@ -236,6 +236,7 @@ function moveCanvasToProject(canvasId,targetProjectId){
   if(!source||!target||source===target)return;
   const c=source.canvases.find(c=>c.id===canvasId);if(!c)return;
   const needed=new Set((c.items||[]).filter(i=>i.fileId).map(i=>i.fileId));
+  for(const item of c.items||[])if(item.sourceRef?.fileId)needed.add(item.sourceRef.fileId);
   for(const p of c.previews||[])if(p.fileId)needed.add(p.fileId);
   for(const l of c.links||[])if(l.sourceRef?.fileId)needed.add(l.sourceRef.fileId);
   for(const id of needed)if(!source.files.some(f=>f.id===id)){toast("移动失败：附件记录缺失，请先检查关系");return;}

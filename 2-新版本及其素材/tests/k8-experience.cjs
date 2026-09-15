@@ -3,7 +3,7 @@ const {app,BrowserWindow,ipcMain}=require('electron');
 const fs=require('fs'),path=require('path'),os=require('os');
 const root=path.resolve(__dirname,'../..'),resources=process.argv[2];
 app.setPath('userData',fs.mkdtempSync(path.join(os.tmpdir(),'zhijian-k8-')));
-const out=path.join(root,'out/k8.1-validation');fs.mkdirSync(out,{recursive:true});
+const out=path.join(root,'out/k8.2-validation');fs.mkdirSync(out,{recursive:true});
 function pdfFixture(){
  const objects=['<< /Type /Catalog /Pages 2 0 R >>','<< /Type /Pages /Kids [3 0 R 4 0 R] /Count 2 >>',...Array.from({length:2},()=> '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 300 400] /Resources << >> >>')];
  let text='%PDF-1.4\n',offsets=[0];objects.forEach((v,i)=>{offsets.push(Buffer.byteLength(text));text+=(i+1)+' 0 obj\n'+v+'\nendobj\n';});
@@ -16,7 +16,7 @@ function docxFixture(){
 app.whenReady().then(async()=>{
  let win;const errors=[];
  try{
-  for(const [key,value] of Object.entries({'get-version':'0.10.1','get-system-theme':false,'get-open-file':null,'set-taskbar-icon':{ok:true},'set-fantin-icon':{ok:true},'quit-modal-ready':true}))ipcMain.handle(key,()=>value);
+  for(const [key,value] of Object.entries({'get-version':'0.10.2','get-system-theme':false,'get-open-file':null,'set-taskbar-icon':{ok:true},'set-fantin-icon':{ok:true},'quit-modal-ready':true}))ipcMain.handle(key,()=>value);
   win=new BrowserWindow({show:false,width:1440,height:900,webPreferences:{offscreen:true,preload:resources?path.join(resources,'app.asar/preload.js'):path.join(root,'2-新版本及其素材/desktop/electron/preload.js'),contextIsolation:true,nodeIntegration:false,backgroundThrottling:false}});
   win.webContents.on('console-message',(_e,level,message)=>{if(level>=3)errors.push(message);});
   await win.loadFile(resources?path.join(resources,'index.html'):path.join(root,'2-新版本及其素材/织见-思维关系板-K6.html'));
@@ -29,7 +29,7 @@ app.whenReady().then(async()=>{
    const f={id:'f'+uid++,name:'阅读说明.md',kind:'text',blob:new Blob(['# 阅读研究\\n\\n选中文字后，可以复制到便签或其他应用。\\n\\n## 本次改进\\n- 纵览保持预览内容\\n- 附件按画布归档\\n\\n> 原文件保留，方便继续使用。'])};p.files.push(f);await persistBlob(f);
    c.items=[{id:uid++,type:'fileCard',fileId:f.id,name:f.name,kind:'text',x:80,y:60,w:600,h:440,previewOpen:true,_morphW:600,_morphH:440}];
    state.camera={x:0,y:0,zoom:1};renderSidePanel();render();await wait(350);
-   const card=c.items[0],m=getMorph(card.id);assert(m.body.textContent.includes('阅读研究'),'Markdown preview');
+   let card=c.items[0];const m=getMorph(card.id);assert(m.body.textContent.includes('阅读研究'),'Markdown preview');
    const savedPosition=m.el.style.cssText;state._camInteracting=true;state.camera={x:40,y:30,zoom:.8};render();
    assert(getComputedStyle(previewLayer).visibility==='hidden','Preview must pause during camera interaction');
    assert(m.el.style.cssText===savedPosition,'No preview geometry updates during interaction');
@@ -37,7 +37,22 @@ app.whenReady().then(async()=>{
    const r=m.el.getBoundingClientRect(),expected=w2s(card.x,card.y),boardRect=board.getBoundingClientRect();
    assert(Math.abs(r.x-boardRect.x-expected.x)<2&&Math.abs(r.y-boardRect.y-expected.y)<2,'Restored preview alignment');
    assert(getComputedStyle(previewLayer).visibility!=='hidden'&&getMorph(card.id)===m,'Restore cached preview immediately');
-   for(const mode of ['pan','move','resize']){drag={mode};render();assert(getComputedStyle(previewLayer).visibility==='hidden','Pause preview for '+mode);drag=null;render();assert(getComputedStyle(previewLayer).visibility!=='hidden','Restore preview for '+mode);}
+   drag={mode:'pan'};render();assert(getComputedStyle(previewLayer).visibility!=='hidden','Stationary click must not hide preview');onPointerUp({});await wait(40);
+   for(const mode of ['pan','move','resize']){drag={mode,previewMoved:true};render();assert(getComputedStyle(previewLayer).visibility==='hidden','Pause preview for '+mode);drag=null;render();assert(getComputedStyle(previewLayer).visibility!=='hidden','Restore preview for '+mode);}
+   drag={mode:'pan',previewMoved:true};render();onPointerUp({});await wait(40);assert(getComputedStyle(previewLayer).visibility!=='hidden','Pointer release restores preview without another gesture');
+   const paragraph=m.body.querySelector('p'),range=document.createRange();range.selectNodeContents(paragraph);window.getSelection().removeAllRanges();window.getSelection().addRange(range);
+   const transfer=new DataTransfer();paragraph.dispatchEvent(new DragEvent('dragstart',{bubbles:true,cancelable:true,dataTransfer:transfer}));
+   assert(transfer.types.includes(EXCERPT_DRAG_TYPE),'Selection drag recognized');
+   const bx=board.getBoundingClientRect(),dropX=bx.right-70,dropY=bx.top+500,point=s2w(dropX-bx.left,dropY-bx.top);
+   canvas.dispatchEvent(new DragEvent('dragover',{bubbles:true,cancelable:true,dataTransfer:transfer,clientX:dropX,clientY:dropY}));assert(dropOverlay.style.display==='none','No false file import prompt');
+   canvas.dispatchEvent(new DragEvent('drop',{bubbles:true,cancelable:true,dataTransfer:transfer,clientX:dropX,clientY:dropY}));
+   let excerpt=c.items.find(x=>x.type==='note'&&x.sourceRef);assert(excerpt&&excerpt.x===Math.round(point.x)&&excerpt.y===Math.round(point.y),'Excerpt created at drop coordinates');
+   const excerptId=excerpt.id;assert(excerpt.sourceRef.fileId===f.id,'Excerpt source attached');undo();assert(!state.items.some(x=>x.id===excerptId),'Undo excerpt');redo();excerpt=state.items.find(x=>x.id===excerptId);card=state.items.find(x=>x.id===card.id);assert(excerpt?.sourceRef.fileId===f.id,'Redo source');
+   await openSourceRef(excerpt);await wait(400);assert(document.querySelector('#fullscreenView .k6-source-highlight')?.textContent===excerpt.sourceRef.quote,'Return to original quote');closeFullscreen();await wait(400);
+   const split=document.createElement('div');split.innerHTML='<p>前文<strong>重复</strong>句子</p><p>后文重复句子结束</p>';document.body.appendChild(split);
+   assert(highlightExcerptSource(split,'重复句子',{start:10,prefix:'前文重复句子后文',suffix:'结束'}),'Multi-node quote');
+   assert([...split.querySelectorAll('mark')].map(x=>x.textContent).join('')==='重复句子','Exact highlight text');split.remove();
+   assert(resolveExcerptOffset('重复句子和重复句子','重复句子',null)===-1,'Ambiguous quote must not select wrong occurrence');
    const gaps=[];let last=performance.now(),running=true;function sample(t){gaps.push(t-last);last=t;if(running)requestAnimationFrame(sample);}requestAnimationFrame(sample);
    state.reducedMotion=true;animateCamera(0,0,1);await wait(60);
    assert(state._camInteracting&&state.camera.zoom>.8&&state.camera.zoom<1,'Background toggle must not disable camera animation');
@@ -51,8 +66,15 @@ app.whenReady().then(async()=>{
    const moved=target.files.find(x=>x.id===f.id),folder=target.folders.find(x=>x.id===moved.folderId);
    assert(folder.name==='阅读研究（2）','Folder collision');assert(p.files.includes(f),'Source retained');assert(await readStoredBlob(moved),'Moved attachment readable');
    await wait(350);render();const sorted=gaps.filter(n=>n>0).sort((a,b)=>a-b);
-   return {previewPaused:true,cachedRestore:true,dragPause:true,cameraAnimation:true,focusAnimation:true,frameGaps:{samples:sorted.length,p95:sorted[Math.floor(sorted.length*.95)],max:sorted.at(-1)},folder:folder.name};
+   return {clickPreviewRestored:true,excerptDrop:true,excerptUndoRedo:true,excerptSourceHighlight:true,previewPaused:true,cachedRestore:true,dragPause:true,cameraAnimation:true,focusAnimation:true,frameGaps:{samples:sorted.length,p95:sorted[Math.floor(sorted.length*.95)],max:sorted.at(-1)},folder:folder.name};
   })()`);
+  const clickPoint=await win.webContents.executeJavaScript(`(()=>{const b=board.getBoundingClientRect();return {x:Math.round(b.right-30),y:Math.round(b.top+180)}})()`);
+  for(let i=0;i<3;i++){
+   win.webContents.sendInputEvent({type:'mouseDown',button:'left',clickCount:1,...clickPoint});
+   win.webContents.sendInputEvent({type:'mouseUp',button:'left',clickCount:1,...clickPoint});
+   await new Promise(r=>setTimeout(r,80));
+   await win.webContents.executeJavaScript(`if(getComputedStyle(previewLayer).visibility==='hidden')throw new Error('Real mouse click left preview hidden');`);
+  }
   fs.writeFileSync(path.join(out,'light.png'),(await win.webContents.capturePage()).toPNG());
   await win.webContents.executeJavaScript(`(async()=>{state.dark=true;_applyThemeInner();render();await new Promise(r=>setTimeout(r,250));if(getComputedStyle(document.getElementById('saveStatus')).position!=='fixed')throw new Error('Save status CSS broken');})()`);
   fs.writeFileSync(path.join(out,'dark.png'),(await win.webContents.capturePage()).toPNG());
