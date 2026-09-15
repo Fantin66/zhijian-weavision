@@ -40,6 +40,7 @@ function render(){
   if(W<=0||H<=0){W=board.clientWidth||1;H=board.clientHeight||1;}
   /* F1 */
   const z=state.camera.zoom;
+  let visibleCount=0;
   ctx.setTransform(dpr,0,0,dpr,0,0);
   ctx.clearRect(0,0,W,H);
   /* F1 材质系统：背景由 L1–L4 DOM 层处理，canvas 仅画节点/连线/便签。
@@ -164,10 +165,10 @@ function render(){
       ctx.restore();
     }
     for(const it of state.items){
-      if(it.type!=="mindNode"&&filterOk(it)){const _b=itemBounds(it);if(!_b||inViewport(_b))drawItem(it);} /* H3 任务14: 视口裁剪，跳过屏幕外元素 */
+      if(it.type!=="mindNode"&&filterOk(it)){const _b=itemBounds(it);if(!_b||inViewport(_b)){visibleCount++;drawItem(it);}} /* H3 任务14: 视口裁剪，跳过屏幕外元素 */
     }
     for(const it of state.items){
-      if(it.type==="mindNode"&&isMindNodeVisible(it)&&filterOk(it)){const _b=itemBounds(it);if(!_b||inViewport(_b))drawItem(it);} /* H3 任务14: 视口裁剪 */
+      if(it.type==="mindNode"&&isMindNodeVisible(it)&&filterOk(it)){const _b=itemBounds(it);if(!_b||inViewport(_b)){visibleCount++;drawItem(it);}} /* H3 任务14: 视口裁剪 */
     }
   }
   /* 选中框/手柄叠加在内容之上 */
@@ -334,7 +335,6 @@ function render(){
       }
     }
   }
-  const visibleCount=ZhijianPerf.isEnabled()?state.items.reduce((n,it)=>{const b=itemBounds(it);return n+(b&&inViewport(b)?1:0);},0):0;
   ZhijianPerf.endFrame(perfFrame,{items:state.items.length,links:state.links.length,visible:visibleCount});
   /* H1 任务3: 跃迁闪烁由 CSS .jump-confirm 动画完成，不再触发低频全量重绘定时器 */
 }
