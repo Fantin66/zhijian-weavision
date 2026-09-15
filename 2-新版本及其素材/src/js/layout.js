@@ -735,6 +735,11 @@ function renderSelBar(sel){
     if(f) selbar.appendChild(sbtn(ICON.export,"默认打开",()=>{if(typeof openWithExternalApp==="function")openWithExternalApp(f);}));
   }
   if(sel.type==="note"){
+    const source=document.createElement("button");
+    source.type="button";source.className="sbtn source-action";source.textContent="查看来源";
+    source.addEventListener("pointerdown",e=>e.stopPropagation());
+    source.addEventListener("click",e=>{e.stopPropagation();if(!source.disabled)openSourceRef(selectedItem());});
+    selbar.appendChild(source);
     selbar.appendChild(sbtn(ICON.fullscreen,"全屏预览 (Alt+F)",()=>openFullscreenNote(sel)));
   }
   if(sel.type==="mindNode"){
@@ -792,6 +797,12 @@ function updateSelBar(){
   const sel=selectedItem();
   if(!sel){selbar.style.display="none";renderDock();return;}
   if(selbar.dataset.id!==String(sel.id)) renderSelBar(sel);
+  const source=selbar.querySelector(".source-action");
+  if(source){
+    const ref=sel.sourceRef;
+    source.disabled=!ref?.fileId||!state.files.some(f=>String(f.id)===String(ref.fileId));
+    source.title=!ref?"此便签没有来源":source.disabled?"来源附件已不存在":"打开附件并定位摘录原文";
+  }
   /* E5: links don't have itemBounds — use midpoint of connected items */
   var b;
   if(sel.type==="link"||sel.type==="mindLink"){

@@ -17,7 +17,7 @@
 ============================================================ */
 const dockBar=document.getElementById("dockBar");
 const dockInner=dockBar?dockBar.querySelector(".dock-inner"):null;
-let dockState=null,dockSwitchTimer=0;   /* dockState 初始为 null，确保首帧必定构建 */
+let dockState=null,dockSwitchTimer=0,dockSelectionKey="";
 function dkBtn(opt){
   const b=document.createElement("button");
   b.className="dk-btn"+(opt.on?" on":"");
@@ -162,8 +162,11 @@ function dockTargetState(){
 function renderDock(immediate){
   if(!dockBar||!dockInner)return;
   const st=dockTargetState();
-  const changed=(st!==dockState);
+  const sel=selectedItem(),key=String(state.selected)+":"+String(sel?.type)+":"+String(!!sel?.sourceRef);
+  const changed=(st!==dockState||key!==dockSelectionKey);
   if(!changed&&!immediate)return;
+  dockSelectionKey=key;
+  if(dockSwitchTimer){clearTimeout(dockSwitchTimer);dockSwitchTimer=0;}
   dockState=st;
   dockBar.dataset.state=st;
   const build=()=>{
@@ -173,7 +176,7 @@ function renderDock(immediate){
     dockBar.classList.remove("hidden");
     items.forEach(el=>dockInner.appendChild(el));
   };
-  if(immediate||!changed){build();dockBar.classList.remove("switching");return;}
+  if(immediate||!changed||st==="select"){build();dockBar.classList.remove("switching");return;}
   /* 过渡：淡出 180ms → 换内容 → 淡入 260ms */
   if(dockSwitchTimer)clearTimeout(dockSwitchTimer);
   dockBar.classList.add("switching");

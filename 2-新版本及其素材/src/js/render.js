@@ -302,10 +302,12 @@ function render(){
     updateSelBar();updateFocusHud();renderDock();
   }
   updateStatusBar();drawStatusHUD();
-  /* 操作中隐藏并暂停预览同步；停止后复用已有内容，不销毁、不重新解析。 */
+  /* 仅镜头变化暂停附件正文。保留外框和工具栏的轻量坐标更新。 */
+  previewLayer.style.visibility="";
+  previewLayer.classList.toggle("preview-camera-paused",previewInteractionActive());
   if(previewInteractionActive()){
-    if(previewLayer)previewLayer.style.visibility="hidden";
-    if(typeof detailReadLayer!=="undefined"&&detailReadLayer)detailReadLayer.style.visibility="hidden";
+    syncPausedPreviewGeometry();
+    if(typeof syncDetailReadDom==="function")syncDetailReadDom();
   }else{
     for(const layer of [previewLayer,typeof detailReadLayer!=="undefined"?detailReadLayer:null])if(layer){layer.style.transform="";layer.style.overflow="";}
     if(previewLayer)previewLayer.style.visibility="";
@@ -386,7 +388,16 @@ function syncPvContentZoom(el,pv,z){
 /* ============================================================
    左热区/Dock 相关同步（保留原 syncMorphDom）
 ============================================================ */
-function previewInteractionActive(){return !!(state._camInteracting||(drag&&drag.previewMoved&&["pan","move","resize"].includes(drag.mode)));}
+function previewInteractionActive(){return !!(state._camInteracting||(drag&&drag.previewMoved&&drag.mode==="pan"));}
+function syncPausedPreviewGeometry(){
+  const z=state.camera.zoom,items=new Map(state.items.map(i=>[String(i.id),i]));
+  for(const [id,m] of morphMap){
+    const it=items.get(id);if(!it)continue;const b=itemBounds(it),p=w2s(b.x,b.y);
+    m.el.style.left=p.x+"px";m.el.style.top=p.y+"px";m.el.style.transform="scale("+z+")";
+  }
+  const windows=new Map([...previewLayer.children].filter(el=>el.dataset.pv).map(el=>[el.dataset.pv,el]));
+  for(const pv of state.previews){const el=windows.get(String(pv.id));if(!el)continue;const p=w2s(pv.x,pv.y);el.style.left=p.x+"px";el.style.top=p.y+"px";el.style.width=pv.w*z+"px";el.style.height=pv.h*z+"px";}
+}
 function syncMorphDom(){
   if(previewInteractionActive())return;
   /* 防御：扫描 previewLayer 中的孤儿 .pv-morph 元素（不在 morphMap 中的残留覆盖层），
@@ -419,6 +430,8 @@ function syncMorphDom(){
     }
     const b=itemBounds(card);
     if(!b){destroyMorphDom(cardId);continue;}
+    const resizing=!!(drag?.previewMoved&&drag.mode==="resize"&&String(drag.item?.id)===cardId);
+    el.classList.toggle("preview-body-paused",resizing);
     const z=state.camera.zoom;
     /* C1 修复：形变层从卡片顶部开始（覆盖整张卡片），不再从 PV_HEAD_H 下方开始。
        此前 B1 从标题栏下方开始——但 canvas 标题栏与 DOM pv-morph-tools 形成双上栏。
@@ -438,7 +451,7 @@ function syncMorphDom(){
     /* 形变覆盖层内的 iframe（网页链接）—— I5-fix: 与 syncPvContentZoom 共用 applyWebViewportZoom。
        覆盖层外层已带 scale(z)（el.style.transform），故 stagePx 传画布宽 b.w-16，不再重复乘 z。 */
     const mBody=m.body||el.querySelector(".pv-morph-content")||el;
-    if(mBody){
+    if(mBody&&!resizing){
       const iframe=mBody.__pvIframe;
       const stage=mBody.__pvStage;
       if(iframe&&stage){

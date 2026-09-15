@@ -1,7 +1,6 @@
 const { app, BrowserWindow, shell, nativeTheme, ipcMain, dialog, Menu, nativeImage } = require("electron");
 const path = require("path");
 const fs = require("fs");
-const AdmZip = require("adm-zip");
 const { execFile } = require("child_process");
 
 let win = null;
@@ -225,11 +224,10 @@ function createWindow() {
 
   win.setMenuBarVisibility(false);
 
-  /* G11: 任务栏图标按风格+预设+系统主题设置 */
-  applyTaskbarIcon();
-
-  /* K5: 自动安装 fantin-report skill 到用户目录 */
-  installFantinSkill();
+  /* 窗口首屏优先，快捷方式图标与辅助指引复制放到页面加载后。 */
+  win.webContents.once("did-finish-load",()=>{
+    setTimeout(()=>{if(win&&!win.isDestroyed()){applyTaskbarIcon();installFantinSkill();}},1000);
+  });
 
   nativeTheme.on("updated", () => {
     /* 系统主题变化：切换任务栏图标 + 通知页面（如果 autoTheme 开启） */

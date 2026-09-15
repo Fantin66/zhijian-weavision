@@ -3,7 +3,7 @@ const {app,BrowserWindow,ipcMain}=require('electron');
 const fs=require('fs'),path=require('path'),os=require('os');
 const root=path.resolve(__dirname,'../..'),resources=process.argv[2];
 app.setPath('userData',fs.mkdtempSync(path.join(os.tmpdir(),'zhijian-k8-')));
-const out=path.join(root,'out/k8.2-validation');fs.mkdirSync(out,{recursive:true});
+const out=path.join(root,'out/k8.3-validation');fs.mkdirSync(out,{recursive:true});
 function pdfFixture(){
  const objects=['<< /Type /Catalog /Pages 2 0 R >>','<< /Type /Pages /Kids [3 0 R 4 0 R] /Count 2 >>',...Array.from({length:2},()=> '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 300 400] /Resources << >> >>')];
  let text='%PDF-1.4\n',offsets=[0];objects.forEach((v,i)=>{offsets.push(Buffer.byteLength(text));text+=(i+1)+' 0 obj\n'+v+'\nendobj\n';});
@@ -16,7 +16,7 @@ function docxFixture(){
 app.whenReady().then(async()=>{
  let win;const errors=[];
  try{
-  for(const [key,value] of Object.entries({'get-version':'0.10.2','get-system-theme':false,'get-open-file':null,'set-taskbar-icon':{ok:true},'set-fantin-icon':{ok:true},'quit-modal-ready':true}))ipcMain.handle(key,()=>value);
+  for(const [key,value] of Object.entries({'get-version':'0.10.3','get-system-theme':false,'get-open-file':null,'set-taskbar-icon':{ok:true},'set-fantin-icon':{ok:true},'quit-modal-ready':true}))ipcMain.handle(key,()=>value);
   win=new BrowserWindow({show:false,width:1440,height:900,webPreferences:{offscreen:true,preload:resources?path.join(resources,'app.asar/preload.js'):path.join(root,'2-新版本及其素材/desktop/electron/preload.js'),contextIsolation:true,nodeIntegration:false,backgroundThrottling:false}});
   win.webContents.on('console-message',(_e,level,message)=>{if(level>=3)errors.push(message);});
   await win.loadFile(resources?path.join(resources,'index.html'):path.join(root,'2-新版本及其素材/织见-思维关系板-K6.html'));
@@ -31,14 +31,16 @@ app.whenReady().then(async()=>{
    state.camera={x:0,y:0,zoom:1};renderSidePanel();render();await wait(350);
    let card=c.items[0];const m=getMorph(card.id);assert(m.body.textContent.includes('阅读研究'),'Markdown preview');
    const savedPosition=m.el.style.cssText;state._camInteracting=true;state.camera={x:40,y:30,zoom:.8};render();
-   assert(getComputedStyle(previewLayer).visibility==='hidden','Preview must pause during camera interaction');
-   assert(m.el.style.cssText===savedPosition,'No preview geometry updates during interaction');
+   assert(getComputedStyle(m.body).visibility==='hidden','Only content pauses during camera interaction');
+   assert(getComputedStyle(m.el.querySelector('.pv-morph-tools')).visibility==='visible','Toolbar remains visible');
+   assert(m.el.style.cssText!==savedPosition,'Toolbar geometry follows camera');
    state._camInteracting=false;render();
    const r=m.el.getBoundingClientRect(),expected=w2s(card.x,card.y),boardRect=board.getBoundingClientRect();
    assert(Math.abs(r.x-boardRect.x-expected.x)<2&&Math.abs(r.y-boardRect.y-expected.y)<2,'Restored preview alignment');
    assert(getComputedStyle(previewLayer).visibility!=='hidden'&&getMorph(card.id)===m,'Restore cached preview immediately');
    drag={mode:'pan'};render();assert(getComputedStyle(previewLayer).visibility!=='hidden','Stationary click must not hide preview');onPointerUp({});await wait(40);
-   for(const mode of ['pan','move','resize']){drag={mode,previewMoved:true};render();assert(getComputedStyle(previewLayer).visibility==='hidden','Pause preview for '+mode);drag=null;render();assert(getComputedStyle(previewLayer).visibility!=='hidden','Restore preview for '+mode);}
+   for(const mode of ['pan','move','resize']){drag={mode,previewMoved:true};render();assert(getComputedStyle(m.body).visibility===(mode==='pan'?'hidden':'visible'),'Only camera pan pauses content; ordinary '+mode);drag=null;render();assert(getComputedStyle(m.body).visibility==='visible','Restore preview for '+mode);}
+   drag={mode:'resize',previewMoved:true,item:card};render();assert(getComputedStyle(m.body).visibility==='hidden'&&getComputedStyle(m.el.querySelector('.pv-morph-tools')).visibility==='visible','Resize pauses only target content');drag=null;render();
    drag={mode:'pan',previewMoved:true};render();onPointerUp({});await wait(40);assert(getComputedStyle(previewLayer).visibility!=='hidden','Pointer release restores preview without another gesture');
    const paragraph=m.body.querySelector('p'),range=document.createRange();range.selectNodeContents(paragraph);window.getSelection().removeAllRanges();window.getSelection().addRange(range);
    const transfer=new DataTransfer();paragraph.dispatchEvent(new DragEvent('dragstart',{bubbles:true,cancelable:true,dataTransfer:transfer}));
@@ -47,6 +49,11 @@ app.whenReady().then(async()=>{
    canvas.dispatchEvent(new DragEvent('dragover',{bubbles:true,cancelable:true,dataTransfer:transfer,clientX:dropX,clientY:dropY}));assert(dropOverlay.style.display==='none','No false file import prompt');
    canvas.dispatchEvent(new DragEvent('drop',{bubbles:true,cancelable:true,dataTransfer:transfer,clientX:dropX,clientY:dropY}));
    let excerpt=c.items.find(x=>x.type==='note'&&x.sourceRef);assert(excerpt&&excerpt.x===Math.round(point.x)&&excerpt.y===Math.round(point.y),'Excerpt created at drop coordinates');
+   const ordinary=addNote(100,100,'ordinary');state.selected=ordinary.id;render();assert(selbar.querySelector('.source-action')?.disabled,'Ordinary note source disabled');state.selected=excerpt.id;render();
+   assert(dockInner.textContent.includes('查看来源'),'Dock refreshes when switching selected notes');
+   assert(selbar.style.display==='flex'&&!selbar.querySelector('.source-action').disabled,'Floating source button enabled');
+   selbar.querySelector('.source-action').click();await wait(400);assert(document.querySelector('#fullscreenView .k6-source-highlight'),'Visible source button navigates');closeFullscreen();await wait(400);
+   c.items=c.items.filter(x=>x!==ordinary);
    const excerptId=excerpt.id;assert(excerpt.sourceRef.fileId===f.id,'Excerpt source attached');undo();assert(!state.items.some(x=>x.id===excerptId),'Undo excerpt');redo();excerpt=state.items.find(x=>x.id===excerptId);card=state.items.find(x=>x.id===card.id);assert(excerpt?.sourceRef.fileId===f.id,'Redo source');
    await openSourceRef(excerpt);await wait(400);assert(document.querySelector('#fullscreenView .k6-source-highlight')?.textContent===excerpt.sourceRef.quote,'Return to original quote');closeFullscreen();await wait(400);
    const split=document.createElement('div');split.innerHTML='<p>前文<strong>重复</strong>句子</p><p>后文重复句子结束</p>';document.body.appendChild(split);
@@ -66,7 +73,7 @@ app.whenReady().then(async()=>{
    const moved=target.files.find(x=>x.id===f.id),folder=target.folders.find(x=>x.id===moved.folderId);
    assert(folder.name==='阅读研究（2）','Folder collision');assert(p.files.includes(f),'Source retained');assert(await readStoredBlob(moved),'Moved attachment readable');
    await wait(350);render();const sorted=gaps.filter(n=>n>0).sort((a,b)=>a-b);
-   return {clickPreviewRestored:true,excerptDrop:true,excerptUndoRedo:true,excerptSourceHighlight:true,previewPaused:true,cachedRestore:true,dragPause:true,cameraAnimation:true,focusAnimation:true,frameGaps:{samples:sorted.length,p95:sorted[Math.floor(sorted.length*.95)],max:sorted.at(-1)},folder:folder.name};
+   return {sourceButtonVisible:true,dockSelectionRefresh:true,toolbarVisibleDuringCamera:true,ordinaryNoteDragKeepsPreview:true,targetResizePausesContent:true,clickPreviewRestored:true,excerptDrop:true,excerptUndoRedo:true,excerptSourceHighlight:true,cachedRestore:true,cameraAnimation:true,focusAnimation:true,frameGaps:{samples:sorted.length,p95:sorted[Math.floor(sorted.length*.95)],max:sorted.at(-1)},folder:folder.name};
   })()`);
   const clickPoint=await win.webContents.executeJavaScript(`(()=>{const b=board.getBoundingClientRect();return {x:Math.round(b.right-30),y:Math.round(b.top+180)}})()`);
   for(let i=0;i<3;i++){
@@ -76,6 +83,9 @@ app.whenReady().then(async()=>{
    await win.webContents.executeJavaScript(`if(getComputedStyle(previewLayer).visibility==='hidden')throw new Error('Real mouse click left preview hidden');`);
   }
   fs.writeFileSync(path.join(out,'light.png'),(await win.webContents.capturePage()).toPNG());
+  await win.webContents.executeJavaScript(`(()=>{const note=state.items.find(i=>i.sourceRef);state.selected=note.id;state.camera.x=note.x-400;state.camera.y=note.y-180;render();})()`);
+  await new Promise(r=>setTimeout(r,150));
+  fs.writeFileSync(path.join(out,'source-entry.png'),(await win.webContents.capturePage()).toPNG());
   await win.webContents.executeJavaScript(`(async()=>{state.dark=true;_applyThemeInner();render();await new Promise(r=>setTimeout(r,250));if(getComputedStyle(document.getElementById('saveStatus')).position!=='fixed')throw new Error('Save status CSS broken');})()`);
   fs.writeFileSync(path.join(out,'dark.png'),(await win.webContents.capturePage()).toPNG());
   await win.webContents.executeJavaScript(`showSettings();`);

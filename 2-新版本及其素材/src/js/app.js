@@ -65,7 +65,7 @@ function setupAutoSave(){
 }
 /* I5: 统一版本标签——网页与桌面共用一个来源（桌面端异步取 package.json 版本号，
    修复关于页把 Promise 拼进字符串显示"v[object Promise]"、网页端回退旧标签"G3"的问题） */
-let APP_VERSION="K8.2";
+let APP_VERSION="K8.3";
 if(window.electronAPI&&window.electronAPI.getVersion){
   try{window.electronAPI.getVersion().then(function(v){if(v)APP_VERSION="v"+v;}).catch(function(){});}catch(e){}
 }
@@ -1474,19 +1474,11 @@ function init(){
     console.error("init error:",e);
     try{renderSidePanel();render();}catch(_){}
   }).finally(function(){
-    /* G1: 启动动画收尾 — 最低展示 1.5s 后淡出（放 finally 确保即使出错也消失） */
+    /* 初始化完成即移除启动遮罩，不再额外等待 1.5s + 600ms。 */
     var el=document.getElementById("splashScreen");
     if(el){
-      setTimeout(function(){
-        el.classList.add("hide");
-        setTimeout(function(){
-          if(el.parentNode)el.parentNode.removeChild(el);
-          /* G9: 首次启动强制展示版权声明 */
-          if(!localStorage.getItem("zhijian-license-accepted")){
-            showLicenseModal(true);
-          }
-        },600);
-      },1500);
+      el.remove();
+      if(!localStorage.getItem("zhijian-license-accepted"))showLicenseModal(true);
     }
   });
   window.addEventListener("resize",resize);
