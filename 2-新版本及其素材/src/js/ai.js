@@ -87,14 +87,16 @@ function aiCaptureState(){
   for(const p of state.projects)for(const f of (p.files||[]))if(f.blob)blobs[p.id+":"+f.id]=f.blob;
   return {
     json:JSON.stringify({
-      projects:state.projects,activeProjectId:state.activeProjectId,activeCanvasId:state.activeCanvasId,
+      projects:PackageModel.clone(state.projects),activeProjectId:state.activeProjectId,activeCanvasId:state.activeCanvasId,
       selected:state.selected,ui:{dark:state.dark,fontPreset:state.fontPreset,bgPattern:state.bgPattern,bgColorName:state.bgColorName,layoutType:state.layoutType,stylePreset:state.stylePreset,immersive:document.body.classList.contains("immersive")},uid,
     }),
+    histories:structuredClone([...canvasHistories]),
     blobs,
   };
 }
 function aiRestoreState(snapshot){
   const snap=JSON.parse(snapshot.json!==undefined?snapshot.json:snapshot);
+  if(snapshot.histories){canvasHistories.clear();for(const [key,value] of snapshot.histories)canvasHistories.set(key,value);activateHistory();}
   state.projects=snap.projects;state.activeProjectId=snap.activeProjectId;state.activeCanvasId=snap.activeCanvasId;state.selected=snap.selected||null;
   Object.assign(state,snap.ui||{});uid=snap.uid||uid;
   if(snapshot.blobs)for(const p of state.projects)for(const f of (p.files||[])){const k=p.id+":"+f.id;if(snapshot.blobs[k])f.blob=snapshot.blobs[k];}
@@ -107,11 +109,11 @@ function aiRunBatch(commands){
   for(let index=0;index<commands.length;index++){
     const command=commands[index];
     if(!command||typeof command!=="object"||command.op==="batch"){
-      aiRestoreState(before);undoStack.length=undoLen;redoStack.length=redoLen;aiFail("batch 第 "+(index+1)+" 条命令无效");
+      aiRestoreState(before);activateHistory();aiFail("batch 第 "+(index+1)+" 条命令无效");
     }
     const result=aiExecute(command);
     if(!result.ok){
-      aiRestoreState(before);undoStack.length=undoLen;redoStack.length=redoLen;
+      aiRestoreState(before);activateHistory();
       aiFail("batch 第 "+(index+1)+" 条失败："+result.error);
     }
     results.push(result.value);
@@ -196,7 +198,7 @@ function aiBuildCanvas(plan){
   aiCommit();
   return{projectId:project.id,canvasId:canvas.id,aliases:Object.fromEntries(aliases)};
   }catch(e){
-    aiRestoreState(_snapshot);undoStack.length=_undoLen;redoStack.length=_redoLen;
+    aiRestoreState(_snapshot);activateHistory();
     aiFail(e&&e.message?e.message:"画布构建失败，已回滚");
   }
 }

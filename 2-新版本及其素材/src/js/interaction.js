@@ -562,6 +562,7 @@ function makeBlobURL(f){
   }).catch(()=>toast("读取文件失败"));
 }
 async function importFiles(fileList,folderId){
+  const destinationProject=curProject();if(!destinationProject)return;
   /* FileList 是 input 的 live collection。必须在任何 await 前复制，
      否则调用方清空 input 后，文件夹导入会只剩第一项。 */
   const files=Array.from(fileList||[]);
@@ -578,30 +579,24 @@ async function importFiles(fileList,folderId){
       parts.pop(); /* 去掉文件名 */
       let curFolderId=folderId||null;
       for(const p of parts){
-        let folder=state.folders.find(f=>f.name===p&&f.parentId===curFolderId);
+        let folder=destinationProject.folders.find(f=>f.name===p&&f.parentId===curFolderId);
         if(!folder){
           folder={id:"fld"+(uid++),name:p,parentId:curFolderId,collapsed:false};
-          state.folders.push(folder);
+          destinationProject.folders.push(folder);
         }
         curFolderId=folder.id;
       }
       actualFolderId=curFolderId;
     }
     const f={id:"f"+(uid++),name:file.name,kind,size:file.size,mime:file.type,created:Date.now(),thumb:null,tw:1,th:1,folderId:actualFolderId||null,localPath:file.path||null,blob:file};
-    state.files.push(f);
+    destinationProject.files.push(f);
     /* 存 blob — 内存已有备份，IDB 不可用时降级仅会话内可用 */
-    if(kind!=="link"&&idb){
-      try{
-        const tx=idb.transaction("files","readwrite");
-        tx.objectStore("files").put(file,f.id);
-        await new Promise((res,rej)=>{tx.oncomplete=res;tx.onerror=()=>rej(tx.error);});
-      }catch(err){console.warn("idb put fail",err);}
-    }
+    if(kind!=="link"){try{await persistBlob(f);}catch(err){toast("附件尚未保存："+f.name+"，请点击保存状态重试");}}
     /* 图片生成缩略图 */
     if(kind==="img"){
       try{
-        const blob=await getBlob(f.id);
-        const bmp=await createImageBitmap(blob);
+        const blob=f.blob;
+        const bmp=await createThumbnail(blob);
         const max=300;
         const sc=Math.min(1,max/Math.max(bmp.width,bmp.height));
         f.tw=Math.max(1,Math.round(bmp.width*sc));
@@ -613,7 +608,7 @@ async function importFiles(fileList,folderId){
   }
   renderFileGroups();
   render();saveStateDebounced();
-  toast("已导入 "+added+" 个文件");
+  toast("已导入 "+added+" 个文件"+(failedWrites.size?"；部分附件尚未保存，请重试保存":""));
 }
 function removeFile(id){
   /* C2 修复：删除文件时撤销其缓存的 Object URL，避免内存泄漏。 */
@@ -636,7 +631,7 @@ function removeFile(id){
   clearPreviewCache(id); /* H2 任务8: 回收该文件预览位图缓存 */
   try{
     const tx=idb.transaction("files","readwrite");
-    tx.objectStore("files").delete(id);
+    if(!state.projects.some(p=>p.files.some(f=>f.id===id)))tx.objectStore("files").delete(id);
   }catch(e){}
   renderFileGroups();render();saveStateDebounced();
   toast("已删除文件");
@@ -965,16 +960,17 @@ async function exportUserData(){
     for(const f of (p.files||[])){
       if(seen.has(f.id))continue;seen.add(f.id);
       try{
-        const b=await getBlob(f.id);
+        const b=await readStoredBlob(f);
         if(!b){
           if(f.url)attachments.push({id:f.id,name:f.name,kind:f.kind,mime:f.mime||"",url:f.url});
+          if(!f.url){toast("备份中止：附件无法读取 — "+f.name);return;}
           continue;
         }
         const buf=new Uint8Array(await b.arrayBuffer());
         let bin="";const CH=0x8000;
         for(let i=0;i<buf.length;i+=CH){bin+=String.fromCharCode.apply(null,buf.subarray(i,i+CH));}
         attachments.push({id:f.id,name:f.name,kind:f.kind,mime:f.mime||"",url:f.url||null,b64:btoa(bin)});
-      }catch(e){}
+      }catch(e){toast("备份中止："+f.name+" — "+e.message);return;}
     }
   }
   const data={
@@ -997,48 +993,7 @@ async function exportUserData(){
   toast("已导出 "+userProjects.length+" 个用户项目（含 "+attachments.length+" 个材料）");
 }
 /* I5-fix: 备份恢复入口——读取 type:"userData" 的备份文件，重建项目并把附件写回 IndexedDB */
-async function importUserData(file){
-  const reader=new FileReader();
-  reader.onload=async()=>{
-    try{
-      const data=JSON.parse(reader.result);
-      if(data.type!=="userData"||!Array.isArray(data.projects))throw new Error("bad");
-      for(const att of (data.attachments||[])){
-        if(!att.b64||typeof idb==="undefined"||!idb)continue;
-        try{
-          const bin=atob(att.b64);const buf=new Uint8Array(bin.length);
-          for(let i=0;i<bin.length;i++)buf[i]=bin.charCodeAt(i);
-          const blob=new Blob([buf],{type:att.mime||"application/octet-stream"});
-          const tx=idb.transaction("files","readwrite");tx.objectStore("files").put(blob,att.id);
-        }catch(e){}
-      }
-      let restored=0;
-      for(const p of data.projects){
-        const clash=state.projects.some(x=>x.id===p.id);
-        const np={
-          ...p,
-          id:clash?("p"+(uid++)):p.id,
-          name:clash?(p.name+"（恢复）"):p.name,
-          files:(p.files||[]).map(f=>({...f,thumb:null,tw:1,th:1})),
-          folders:p.folders||[],
-          canvases:(p.canvases||[]).map(c=>({...c,items:c.items||[],camera:c.camera||{x:0,y:0,zoom:1},previews:c.previews||[],links:c.links||[]})),
-          isBuiltin:false,
-        };
-        state.projects.push(np);restored++;
-      }
-      syncUid();cleanupProjectReferences();
-      if(state.projects.length){
-        const last=state.projects[state.projects.length-1];
-        state.activeProjectId=last.id;
-        state.activeCanvasId=(last.canvases[0]||{}).id;
-      }
-      await restoreFiles();
-      render();renderFileGroups();renderSidePanel();saveStateDebounced();
-      toast("备份已恢复："+restored+" 个项目");
-    }catch(e){toast("恢复失败：不是有效的织见备份文件");}
-  };
-  reader.readAsText(file);
-}
+async function importUserData(file){return k6ImportBackup(file);}
 
 function exportProject(){
   const c=curCanvas();if(!c){toast("无画布");return;}
@@ -1102,7 +1057,7 @@ function importProject(file){
               /* 尝试重建缩略图（若有 idb 里的 blob） */
               for(const f of state.files){
                 if(f.kind==="img"){
-                  try{const b=await getBlob(f.id);const bmp=await createImageBitmap(b);const max=300;const sc=Math.min(1,max/Math.max(bmp.width,bmp.height));f.thumb=bmp;f.tw=bmp.width*sc;f.th=bmp.height*sc;}catch(e){}
+                  try{const b=await getBlob(f.id);const bmp=await createThumbnail(b);const max=300;const sc=Math.min(1,max/Math.max(bmp.width,bmp.height));f.thumb=bmp;f.tw=bmp.width*sc;f.th=bmp.height*sc;}catch(e){}
                 }
               }
               render();renderFileGroups();saveStateDebounced();

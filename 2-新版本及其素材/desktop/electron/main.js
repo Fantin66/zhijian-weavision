@@ -209,7 +209,7 @@ function createWindow() {
   /* G9: 打包后用 extraResources 路径，开发时用相对路径 */
   const htmlPath = app.isPackaged
     ? path.join(process.resourcesPath, "index.html")
-    : path.join(__dirname, "../../织见-思维关系板-K5.html");
+    : path.join(__dirname, "../../织见-思维关系板-K6.html");
   win.loadFile(htmlPath);
 
   /* I5-fix: 外链只放行 http(s)（file://、ms-msdt: 等协议一律不开），页内顶层导航一律拦下转外开 */
@@ -405,127 +405,7 @@ function safeJoin(root, sub) {
   return target;
 }
 
-/* G4: 写 data.json + attachments 到临时目录（供 .fantin 打包或文件夹导出共用） */
-function writePackageToDir(dir, data) {
-  const attDir = path.join(dir, "attachments");
-  fs.mkdirSync(attDir, { recursive: true });
-  fs.writeFileSync(path.join(dir, "data.json"), JSON.stringify(data.structure, null, 2), "utf-8");
-  let attCount = 0;
-  for (const att of (data.attachments || [])) {
-    if (!att.buffer) continue;
-    const safeName = (att.name || "unnamed").replace(/[\\/:*?"<>|]/g, "_");
-    fs.writeFileSync(safeJoin(attDir, safeName), Buffer.from(att.buffer));
-    attCount++;
-  }
-  return attCount;
-}
-
-/* G4: 从目录读取 data.json + attachments（供 .fantin 解压和文件夹导入共用） */
-function readPackageFromDir(dir) {
-  const dataPath = path.join(dir, "data.json");
-  if (!fs.existsSync(dataPath)) return { ok: false, error: "未找到 data.json" };
-  const structure = JSON.parse(fs.readFileSync(dataPath, "utf-8"));
-  const attachments = [];
-  const attDir = path.join(dir, "attachments");
-  if (fs.existsSync(attDir)) {
-    for (const fname of fs.readdirSync(attDir)) {
-      const buf = fs.readFileSync(path.join(attDir, fname));
-      /* I5-fix: readFileSync 的 buffer 挂在 64KB 共享内存池上，必须 slice 出精确区间，
-         否则小附件经 IPC 传给渲染层会带上整块 64KB 的堆垃圾，预览/再导出全部损坏 */
-      attachments.push({ name: fname, buffer: buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength) });
-    }
-  }
-  return { ok: true, structure, attachments };
-}
-
-/* ===== 导出：.fantin 文件 ===== */
-ipcMain.handle("export-fantin", async (event, data) => {
-  if (!win) return { ok: false, error: "no window" };
-  const result = await dialog.showSaveDialog(win, {
-    title: "导出为 .fantin 文件",
-    defaultPath: (data.projectName || "织见画布").replace(/[\\/:*?"<>|]/g, "_") + ".fantin",
-    filters: [{ name: "Fantin 文件", extensions: ["fantin"] }],
-  });
-  if (result.canceled || !result.filePath) return { ok: false, error: "cancelled" };
-  try {
-    /* 写临时目录 → 打包 ZIP → 重命名 .fantin */
-    const tmpDir = path.join(app.getPath("temp"), "fantin-export-" + Date.now());
-    fs.rmSync(tmpDir, { recursive: true, force: true });
-    fs.mkdirSync(tmpDir, { recursive: true });
-    const attCount = writePackageToDir(tmpDir, data);
-    const zip = new AdmZip();
-    zip.addLocalFolder(tmpDir);
-    zip.writeZip(result.filePath);
-    fs.rmSync(tmpDir, { recursive: true, force: true });
-    return { ok: true, path: result.filePath, attachments: attCount };
-  } catch (e) {
-    return { ok: false, error: e.message };
-  }
-});
-
-/* ===== 导出：文件夹 ===== */
-ipcMain.handle("export-folder", async (event, data) => {
-  if (!win) return { ok: false, error: "no window" };
-  const result = await dialog.showOpenDialog(win, {
-    properties: ["openDirectory", "createDirectory"],
-    title: "选择导出位置",
-  });
-  if (result.canceled) return { ok: false, error: "cancelled" };
-  const outDir = result.filePaths[0];
-  const pkgName = (data.projectName || "织见画布").replace(/[\\/:*?"<>|]/g, "_");
-  const pkgDir = safeJoin(outDir, pkgName);
-  try {
-    fs.rmSync(pkgDir, { recursive: true, force: true });
-    fs.mkdirSync(pkgDir, { recursive: true });
-    const attCount = writePackageToDir(pkgDir, data);
-    return { ok: true, path: pkgDir, attachments: attCount };
-  } catch (e) {
-    return { ok: false, error: e.message };
-  }
-});
-
-/* ===== 导入：.fantin 文件 ===== */
-ipcMain.handle("import-fantin", async (event, presetPath) => {
-  if (!win) return { ok: false, error: "no window" };
-  /* I5-fix: 用户主动导入不再吞掉 pendingFantinPath——那条路径专属于双击文件关联流程（get-open-file 消费） */
-  var filePath = presetPath;
-  if (!filePath) {
-    const result = await dialog.showOpenDialog(win, {
-      properties: ["openFile"],
-      title: "选择 .fantin 文件",
-      filters: [{ name: "Fantin 文件", extensions: ["fantin"] }],
-    });
-    if (result.canceled || !result.filePaths.length) return { ok: false, error: "cancelled" };
-    filePath = result.filePaths[0];
-  }
-  try {
-    const zip = new AdmZip(filePath);
-    const tmpDir = path.join(app.getPath("temp"), "fantin-import-" + Date.now());
-    fs.rmSync(tmpDir, { recursive: true, force: true });
-    fs.mkdirSync(tmpDir, { recursive: true });
-    zip.extractAllTo(tmpDir, true);
-    const res = readPackageFromDir(tmpDir);
-    fs.rmSync(tmpDir, { recursive: true, force: true });
-    return res;
-  } catch (e) {
-    return { ok: false, error: e.message };
-  }
-});
-
-/* ===== 导入：文件夹 ===== */
-ipcMain.handle("import-folder", async () => {
-  if (!win) return { ok: false, error: "no window" };
-  const result = await dialog.showOpenDialog(win, {
-    properties: ["openDirectory"],
-    title: "选择要导入的织见文件夹",
-  });
-  if (result.canceled) return { ok: false, error: "cancelled" };
-  try {
-    return readPackageFromDir(result.filePaths[0]);
-  } catch (e) {
-    return { ok: false, error: e.message };
-  }
-});
+require("./package-ipc").install({ipcMain,dialog,app,getWindow:()=>win});
 
 /* ===== 自动保存到文件系统 ===== */
 // I5-fix: save-to-file 死通道删除（持久化实际走 localStorage/IndexedDB + .fantin 导出）
@@ -549,12 +429,14 @@ ipcMain.handle("confirm-quit", () => {
 });
 
 /* I5-fix: 渲染层取消退出时清掉兜底定时器 */
+ipcMain.handle("quit-modal-ready",()=>{if(quitFallbackTimer){clearTimeout(quitFallbackTimer);quitFallbackTimer=null;}});
+
 ipcMain.handle("cancel-quit", () => {
   if (quitFallbackTimer) { clearTimeout(quitFallbackTimer); quitFallbackTimer = null; }
 });
 
 /* I5-fix: 任何 app.quit() 路径（含 macOS Cmd+Q）都先置退出标志，避免被 close 拦截 */
-app.on("before-quit", () => { isQuitting = true; });
+app.on("before-quit", e => { if(!isQuitting&&win&&!win.isDestroyed()){e.preventDefault();win.close();} });
 
 /* G8: 单实例锁 — 已运行时双击 .fantin 发给已有窗口 */
 var gotLock = app.requestSingleInstanceLock();

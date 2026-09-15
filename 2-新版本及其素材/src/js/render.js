@@ -34,6 +34,7 @@ function drawColorful(c,x,y,w,h,r,sel,dark,color){
 ============================================================ */
 function inViewport(b){const z=state.camera.zoom,m=80/z,vx=state.camera.x-m,vy=state.camera.y-m,vw=W/z+2*m,vh=H/z+2*m;return b.x<vx+vw&&b.x+b.w>vx&&b.y<vy+vh&&b.y+b.h>vy;}
 function render(){
+  syncHistoryBtns();
   rebuildIdMap(); /* H1 任务7: 每帧刷新 id→item 索引，供 localAvoid/collectKids/move 用 O(1) 查找 */
   if(W<=0||H<=0){W=board.clientWidth||1;H=board.clientHeight||1;}
   /* F1 */
@@ -751,7 +752,7 @@ function drawMindConnections(scope){
   const SC=styleCfg();
   const nodes=state.items.filter(it=>it.type==="mindNode"&&it.parentId);
   for(const ch of nodes){
-    const p=state.items.find(it=>it.type==="mindNode"&&it.id===ch.parentId);
+    const p=idMap.get(ch.parentId);
     if(!p||!isMindNodeVisible(ch)||!isMindNodeVisible(p)) continue;
     if(scope&&(!scope.has(ch.id)||!scope.has(p.id))) continue;
     /* 通用规则：由实际相对位置推导出口/入口侧（布局期与主轴规则一致；
@@ -855,18 +856,19 @@ function drawMindConnections(scope){
 /* I5-fix: nodeAnchorR/nodeAnchorL 仅被已删除的死函数 exportBranch 使用，随之移除 */
 /* 子树节点总数（含自身） */
 function subtreeCount(n){
-  let cnt=0;
+  let cnt=0;const seen=new Set();
   (function walk(x){
+    if(seen.has(x.id))return;seen.add(x.id);
     cnt++;
-    (x.children||[]).forEach(c=>{const ci=state.items.find(i=>i.id===c);if(ci)walk(ci);});
+    (x.children||[]).forEach(c=>{const ci=idMap.get(c);if(ci)walk(ci);});
   })(n);
   return cnt;
 }
 /* 节点层级深度：根=0，子=1，孙=2... */
 function nodeDepth(n){
   if(n&&n._forcedDepth!==undefined)return n._forcedDepth;
-  let d=0,p=n;
-  while(p&&p.parentId){d++;p=state.items.find(i=>i.id===p.parentId);}
+  let d=0,p=n;const seen=new Set();
+  while(p&&p.parentId&&!seen.has(p.id)){seen.add(p.id);d++;p=idMap.get(p.parentId);}
   return d;
 }
 /* 折叠的是一个子树：节点本身保留，所有后代都不参与绘制和命中。 */
@@ -875,7 +877,7 @@ function isMindNodeVisible(n){
   const seen=new Set();let parentId=n.parentId;
   while(parentId&&!seen.has(parentId)){
     seen.add(parentId);
-    const parent=state.items.find(it=>it.type==="mindNode"&&it.id===parentId);
+    const parent=idMap.get(parentId);
     if(!parent)return true;
     if(parent.collapsed)return false;
     parentId=parent.parentId;
@@ -2314,7 +2316,8 @@ let jumpConfirmEl=null;
 function showJumpConfirm(item){
   if(!item||!item.jumpTo)return;
   const targetRef=typeof item.jumpTo==="string"?{canvasId:item.jumpTo}:item.jumpTo;
-  const target=curProject().canvases.find(c=>c.id===targetRef.canvasId);
+  const targetProject=state.projects.find(p=>p.id===(targetRef.projectId||state.activeProjectId));
+  const target=targetProject?.canvases.find(c=>c.id===targetRef.canvasId);
   if(!target){toast("跃迁目标已不存在");return;}
   dismissJumpConfirm();
   const b=itemBounds(item);if(!b)return;
@@ -2359,8 +2362,10 @@ function dismissJumpConfirm(){
 function followJump(s){
   if(!s||!s.jumpTo)return false;
   const targetRef=typeof s.jumpTo==="string"?{canvasId:s.jumpTo}:s.jumpTo;
-  const target=curProject().canvases.find(c=>c.id===targetRef.canvasId);
+  const targetProject=state.projects.find(p=>p.id===(targetRef.projectId||state.activeProjectId));
+  const target=targetProject?.canvases.find(c=>c.id===targetRef.canvasId);
   if(!target){toast("跃迁目标已不存在");return false;}
+  if(targetProject.id!==state.activeProjectId)switchProject(targetProject.id);
   switchCanvas(target.id);
   const targetItem=targetRef.itemId&&target.items.find(i=>i.id===targetRef.itemId);
   if(targetItem){

@@ -898,9 +898,9 @@ function openFullscreen(fileIdOrItem,options={}){
         if(fullscreenToken!==myToken)return;
         if(!b){body.innerHTML='<div class="pv-msg">文件不存在</div>';return;}
         if(!f._url)f._url=URL.createObjectURL(b);
-        if(f.kind==="doc")renderDocx(b,body,f.name);
+        if(f.kind==="doc")renderDocx(b,body,f.name).then(()=>highlightSourceQuote(body,options.sourceQuote));
         else if(f.kind==="sheet")renderSheet(b,body);
-        else if(f.kind==="pdf")renderPdf(b,body);
+        else if(f.kind==="pdf")renderPdf(b,body,{paginate:true,initialPage:options.sourcePage||1,fitToWidth:true});
         else if(f.kind==="slide")renderPptx(b,body);
       }).catch(()=>{if(fullscreenToken===myToken)body.innerHTML='<div class="pv-msg">文件读取失败</div>';});
       return;
@@ -1341,7 +1341,7 @@ async function renderPdf(b,bodyEl,opt={}){
         try{await paint(current,canvas);if(token!==paintToken)return;}catch(e){console.warn("pdf page render failed",e);}
       };
       prev.addEventListener("click",()=>show(current-1));next.addEventListener("click",()=>show(current+1));
-      await show(1);
+      await show(opt.initialPage||1);
     }else{
       for(let i=1;i<=pdf.numPages;i++){
         const canvas=document.createElement("canvas");

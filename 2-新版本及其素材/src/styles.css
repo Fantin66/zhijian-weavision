@@ -2245,3 +2245,10 @@ body.reduced-motion #bg-l2-mica{
   font-weight:400;opacity:.6;font-size:10px;display:block;margin-top:2px;
 }
 }
+
+/* K6: persistent save state and maintenance tools */
+.k6-save,.k6-check{position:fixed;bottom:12px;z-index:120;border:1px solid var(--card-border);border-radius:8px;background:var(--surface);color:var(--ink-dim);padding:6px 10px;font:12px var(--font);cursor:pointer}
+.k6-save{right:16px}.k6-check{right:180px}.k6-save[data-status="error"]{color:var(--danger);border-color:var(--danger)}
+.k6-tools{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:18px}.k6-list-row{display:block;width:100%;text-align:left;padding:12px;margin:6px 0;background:var(--surface);color:var(--ink);border:1px solid var(--card-border);border-radius:8px;cursor:pointer;font:13px var(--font)}
+.k6-progress{position:fixed;bottom:52px;right:16px;z-index:10000;background:var(--surface);color:var(--ink);padding:14px;border:1px solid var(--card-border);border-radius:10px;box-shadow:0 4px 22px #0002}.k6-progress[hidden]{display:none}.k6-progress button{margin-left:20px}.k6-source-highlight{background:#ffe08a;color:#202020}
+.fullscreen-active .k6-check,.fullscreen-active .k6-save{display:none}

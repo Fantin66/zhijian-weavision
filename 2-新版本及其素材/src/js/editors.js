@@ -116,6 +116,8 @@ function dockContent(st){
       out.push(dkSep());
       out.push(dkBtn({icon:ICON.edit,label:"编辑",title:"编辑内容 (双击)",fn:()=>{if(sel.type==="note")openTextEditor(sel);else{state.selected=sel.id;/* E5: openDetail removed */}}}));
     }else if(sel.type==="link"){
+    out.push(dkBtn({icon:"↗",label:"来源",title:"设置证据来源",fn:()=>editSourceRef(sel)}));
+    if(sel.sourceRef)out.push(dkBtn({icon:"↗",label:"查看来源",title:"定位到证据原文",fn:()=>openSourceRef(sel)}));
     /* E5: link dock — level, shape, relation, annotate, focus */
     var lvlLabels={normal:"普通",emphasis:"强调",highlight:"醒目"};
     var lvl=sel.level||"normal";
@@ -867,7 +869,7 @@ function linksOf(it){
 }
 /* 绘制自由连接线 */
 function linkCurve(l){
-  const a=state.items.find(i=>i.id===l.aId),b=state.items.find(i=>i.id===l.bId);
+  const a=idMap.get(l.aId)||state.items.find(i=>i.id===l.aId),b=idMap.get(l.bId)||state.items.find(i=>i.id===l.bId);
   if(!a||!b)return null;
   const ab=itemBounds(a),bb=itemBounds(b);
   if(!ab||!bb)return null;
@@ -924,7 +926,7 @@ function drawLinks(scope){
   const z=state.camera.zoom;
   for(const l of state.links){
     if(scope&&(!scope.has(l.aId)||!scope.has(l.bId)))continue;
-    const a=state.items.find(it=>it.id===l.aId),b=state.items.find(it=>it.id===l.bId);
+    const a=idMap.get(l.aId),b=idMap.get(l.bId);
     if((a&&a.type==="mindNode"&&!isMindNodeVisible(a))||(b&&b.type==="mindNode"&&!isMindNodeVisible(b)))continue;
     const curve=linkCurve(l);if(!curve)continue;
     const {ea,eb,mx}=curve;
@@ -1626,9 +1628,10 @@ function cleanupProjectReferences(){
     for(const item of canvas.items||[]){
       if(!item.jumpTo)continue;
       const ref=typeof item.jumpTo==="string"?{canvasId:item.jumpTo}:item.jumpTo;
-      const target=project.canvases.find(c=>c.id===ref.canvasId);
+      const targetProject=state.projects.find(p=>p.id===(ref.projectId||project.id));
+      const target=targetProject?.canvases.find(c=>c.id===ref.canvasId);
       if(!target){item.jumpTo=null;continue;}
-      if(ref.itemId&&!target.items.some(i=>i.id===ref.itemId))item.jumpTo={canvasId:target.id,itemId:null};
+      if(ref.itemId&&!target.items.some(i=>i.id===ref.itemId))item.jumpTo={...ref,canvasId:target.id,itemId:null};
     }
   }
 }

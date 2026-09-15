@@ -145,7 +145,7 @@ function createProject(name){
   renderSidePanel();render();saveStateDebounced();
   return p;
 }
-function deleteProject(id){
+async function deleteProject(id){
   const proj=state.projects.find(p=>p.id===id);
   if(proj&&proj.isBuiltin){toast("内置项目不可删除，可使用「重置学堂」恢复初始状态");return;}
   if(state.projects.length<=1){toast("至少保留一个项目");return;}
@@ -153,11 +153,12 @@ function deleteProject(id){
   /* C2 修复：删除项目时撤销该项目所有文件的缓存 Object URL。 */
   const proj2=state.projects[idx];
   if(proj2&&proj2.files){for(const f of proj2.files){if(f._url){try{URL.revokeObjectURL(f._url);}catch(e){}f._url=null;}}}
-  state.projects.splice(idx,1);
+  if(!await queueRecovery("删除项目："+proj2.name))return;
+  state.projects=state.projects.filter(p=>p.id!==id);
   const np=state.projects[0];
   state.activeProjectId=np.id;
   state.activeCanvasId=np.canvases[0].id;
-  state.selected=null;state.search=null;
+  resetTransientState();
   renderSidePanel();render();saveStateDebounced();syncPvDom();
 }
 function switchProject(id){
@@ -165,7 +166,7 @@ function switchProject(id){
   state.activeProjectId=id;
   const p=curProject();
   state.activeCanvasId=p.canvases[0].id;
-  state.selected=null;state.search=null;
+  resetTransientState();
   renderSidePanel();render();saveStateDebounced();syncPvDom();
 }
 function createCanvas(name){
@@ -177,9 +178,10 @@ function createCanvas(name){
   renderSidePanel();render();saveStateDebounced();
   return c;
 }
-function deleteCanvas(id){
+async function deleteCanvas(id){
   const p=curProject();if(!p)return;
   if(p.canvases.length<=1){toast("至少保留一张画布");return;}
+  if(!await queueRecovery("删除画布："+(p.canvases.find(c=>c.id===id)?.name||"画布")))return;
   p.canvases=p.canvases.filter(c=>c.id!==id);
   cleanupProjectReferences();
   state.activeCanvasId=p.canvases[0].id;
@@ -189,7 +191,7 @@ function deleteCanvas(id){
 function switchCanvas(id){
   saveCurrentCanvas();
   state.activeCanvasId=id;
-  state.selected=null;state.search=null;
+  resetTransientState();
   renderSidePanel();render();saveStateDebounced();syncPvDom();
 }
 function renameCanvas(id,name){
@@ -225,19 +227,22 @@ function reorderCanvases(fromId,toId,before){
   renderSidePanel();saveStateDebounced();
 }
 function moveCanvasToProject(canvasId,targetProjectId){
-  var srcP=curProject();if(!srcP)return;
-  var fromIdx=srcP.canvases.findIndex(c=>c.id===canvasId);
-  if(fromIdx<0)return;
-  var targetP=state.projects.find(p=>p.id===targetProjectId);
-  if(!targetP||targetP===srcP)return;
-  var canvas=srcP.canvases.splice(fromIdx,1)[0];
-  targetP.canvases.push(canvas);
-  /* 如果移走的是当前活动画布，切到剩余的第一个 */
-  if(state.activeCanvasId===canvasId){
-    state.activeCanvasId=srcP.canvases.length?srcP.canvases[0].id:(targetP.canvases[0]?targetP.canvases[0].id:null);
+  const source=curProject(),target=state.projects.find(p=>p.id===targetProjectId);
+  if(!source||!target||source===target)return;
+  const c=source.canvases.find(c=>c.id===canvasId);if(!c)return;
+  const needed=new Set((c.items||[]).filter(i=>i.fileId).map(i=>i.fileId));
+  for(const p of c.previews||[])if(p.fileId)needed.add(p.fileId);
+  for(const l of c.links||[])if(l.sourceRef?.fileId)needed.add(l.sourceRef.fileId);
+  for(const id of needed)if(!source.files.some(f=>f.id===id)){toast("移动失败：附件记录缺失，请先检查关系");return;}
+  for(const id of needed){const f=source.files.find(f=>f.id===id);if(!target.files.some(f=>f.id===id))target.files.push({...f,folderId:null,thumb:null,_url:null});}
+  for(const p of state.projects)for(const board of p.canvases)for(const i of board.items||[]){
+    if(!i.jumpTo)continue;const j=typeof i.jumpTo==="string"?{canvasId:i.jumpTo}:i.jumpTo;
+    if(j.canvasId===c.id)i.jumpTo={...j,projectId:target.id};else if(board===c)i.jumpTo={...j,projectId:j.projectId||source.id};
   }
-  saveCurrentCanvas();
-  renderSidePanel();render();saveStateDebounced();syncPvDom();
+  source.canvases=source.canvases.filter(b=>b!==c);target.canvases.push(c);
+  if(!source.canvases.length)source.canvases.push({id:"c"+(uid++),name:"主画布",items:[],links:[],previews:[],camera:{x:0,y:0,zoom:1}});
+  saveCurrentCanvas();state.activeProjectId=target.id;state.activeCanvasId=c.id;resetTransientState();
+  renderSidePanel();render();saveStateDebounced();syncPvDom();restoreFiles();
 }
 function renameFile(id,name){
   const f=state.files.find(x=>x.id===id);
@@ -250,7 +255,11 @@ function saveCurrentCanvas(){
   destroyMorphDom();
 }
 let editingNoteId=null,editingMindId=null,editingNoteDraftStyle=null;
-const undoStack=[],redoStack=[];
+let undoStack=[],redoStack=[];
+const canvasHistories=new Map();
+function activateHistory(){const c=curCanvas();if(!c){undoStack=[];redoStack=[];return;}let h=canvasHistories.get(c.id);if(!h){h={undo:[],redo:[]};canvasHistories.set(c.id,h);}undoStack=h.undo;redoStack=h.redo;}
+function resetTransientState(){state.selected=null;state.multiSel=[];state.hover=null;state.focusMode=null;state.search=null;}
+
 const MAX_HISTORY=60;
 const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
 const cloneCanvasState=()=>{
@@ -277,12 +286,14 @@ function restoreCanvasState(snapshot){
 }
 
 function pushHistory(label){
+  activateHistory();
   undoStack.push({state:cloneCanvasState(),label:label||"操作"});
   if(undoStack.length>MAX_HISTORY) undoStack.shift();
   redoStack.length=0;
   syncHistoryBtns();
 }
 function undo(){
+  activateHistory();
   if(!undoStack.length) return;
   const entry=undoStack.pop();
   redoStack.push({state:cloneCanvasState(),label:entry.label});
@@ -293,6 +304,7 @@ function undo(){
   toast("撤销："+entry.label);
 }
 function redo(){
+  activateHistory();
   if(!redoStack.length) return;
   const entry=redoStack.pop();
   undoStack.push({state:cloneCanvasState(),label:entry.label});
@@ -303,6 +315,7 @@ function redo(){
   toast("重做："+entry.label);
 }
 function syncHistoryBtns(){
+  activateHistory();
   document.getElementById("undoBtn").style.opacity=undoStack.length?1:.4;
   document.getElementById("redoBtn").style.opacity=redoStack.length?1:.4;
 }
@@ -372,12 +385,16 @@ function union(a,b){
   return{x,y,w:x2-x,h:y2-y};
 }
 /* 节点正文按可读宽度折行；宽度有上限、内容高度无硬截断，避免长标题被省略或撑成一条横幅。 */
+let mindMetricsCache=new WeakMap();
 function mindNodeMetrics(it,c){
   const cc=c||ctx,depth=nodeDepth(it),SC=styleCfg(),fs=SC.fontScale||1;
+  const controls=(it.children&&it.children.length?30:0)+(it.detail?26:0);
+  const key=[it.text,it.w,it.h,depth,fs,FONT,controls];
+  const cached=mindMetricsCache.get(it);
+  if(cached&&cached.key.every((v,i)=>v===key[i]))return cached.value;
   const size=depth===0?Math.round(14*fs):depth===1?Math.round(13*fs):Math.round(12.5*fs);
   const weight=depth===0?"700 ":depth===1?"600 ":"500 ";
   const minW=depth===0?180:depth===1?164:148,maxW=depth===0?340:depth===1?310:280;
-  const controls=(it.children&&it.children.length?30:0)+(it.detail?26:0);
   cc.save();cc.font=weight+size+"px "+FONT;
   const natural=cc.measureText(it.text||"").width+30+controls;
   const w=clamp(Math.max(it.w||0,minW,Math.min(natural,maxW)),minW,maxW);
@@ -385,7 +402,7 @@ function mindNodeMetrics(it,c){
   const lines=wrapLines(cc,it.text||"(空)",available);
   cc.restore();
   const lineH=Math.ceil(size*1.38),h=Math.max(it.h||40,Math.ceil(lines.length*lineH+18));
-  return{w,h,lines,size,weight,lineH,available};
+  const value={w,h,lines,size,weight,lineH,available};mindMetricsCache.set(it,{key,value});return value;
 }
 function itemBounds(it){
   if(!it) return null;

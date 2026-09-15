@@ -251,6 +251,7 @@ fileMeta.forEach((f, i) => {
   const refs = cardCount[f.oldId] || 0;
   let line = i + 1 + ". " + s(f.name) + "　[" + kindOf(f) + "]";
   line += "　mime=" + s(f.mime || "(无)") + "　引用卡片数=" + refs;
+  line += "　包内路径=attachments/" + s(f.packageName || f.name);
   if (refs === 0) {
     line += "　⚠ 无 fileCard 引用";
     warn(`附件「${s(f.name)}」在 fileMeta 中但没有对应 fileCard`);
@@ -269,10 +270,10 @@ if (baseDir) {
   } else {
     const disk = fs.readdirSync(adir);
     console.log("磁盘文件数：" + disk.length + "　fileMeta 数：" + fileMeta.length);
-    const names = new Set(fileMeta.map((f) => f.name));
+    const names = new Set(fileMeta.filter(f=>!(f.kind==="link"&&f.url)).map((f) => f.packageName || f.name));
     const dset = new Set(disk);
     fileMeta.forEach((f) => {
-      if (!dset.has(f.name)) {
+      if (!(f.kind==="link"&&f.url) && !dset.has(f.packageName || f.name)) {
         console.log("  ⚠ fileMeta 声明但磁盘缺失：" + s(f.name));
         warn(`附件「${s(f.name)}」在 fileMeta 中但 attachments/ 下不存在，报告中无法建立有效超链接`);
       }

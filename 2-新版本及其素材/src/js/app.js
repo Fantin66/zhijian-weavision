@@ -2,7 +2,7 @@
 /* ============================================================
    IndexedDB / 持久化
 ============================================================ */
-const DB_NAME="boardlib",DB_VER=1;
+const DB_NAME="boardlib",DB_VER=2;
 let idb=null;
 function openDB(){
   return new Promise((res,rej)=>{
@@ -10,8 +10,10 @@ function openDB(){
     rq.onupgradeneeded=()=>{
       const db=rq.result;
       if(!db.objectStoreNames.contains("files")) db.createObjectStore("files");
+      if(!db.objectStoreNames.contains("recovery"))db.createObjectStore("recovery",{keyPath:"id"});
     };
-    rq.onsuccess=()=>{idb=rq.result;res();};
+    rq.onsuccess=()=>{idb=rq.result;idb.onversionchange=()=>{idb.close();idb=null;updateSaveStatus("error");};res();};
+    rq.onblocked=()=>{toast("请关闭其他织见窗口后重试，以完成存储升级");};
     rq.onerror=()=>{idb=null;res();};  // 降级：无 IDB 时文件仅会话内
   });
 }
@@ -30,16 +32,22 @@ function saveState(){
       savedAt:Date.now(),
     };
     localStorage.setItem("board-state",JSON.stringify(data));
+    updateSaveStatus(pendingWrites.size?"saving":failedWrites.size?"error":"saved");
+    scheduleRecovery(data);
+    return !failedWrites.size;
   }catch(e){
     console.warn("save board state failed",e);
-    toast("保存失败：本地存储空间不足或被浏览器限制");
+    updateSaveStatus("error");
+    toast("保存失败：本地存储空间不足或被浏览器限制，请导出备份");
+    return false;
   }
 }
 /* H1 任务5: 防抖存档——连续操作只在停顿后序列化一次，削平松手时的 CPU 尖峰。
    关键路径（beforeunload）走立即存档绕过防抖，确保最终状态落盘。 */
 /* I5-fix: debounce 的 flush/cancel 扩展零调用方且 flush 的 this 取向有误，删除 */
 function debounce(fn,wait){let t=null;const d=function(){const ctx=this,args=arguments;if(t)clearTimeout(t);t=setTimeout(()=>fn.apply(ctx,args),wait);};return d;}
-const saveStateDebounced=debounce(saveState,1500);
+const _saveStateDebounced=debounce(saveState,1500);
+function saveStateDebounced(){updateSaveStatus("saving");_saveStateDebounced();}
 /* G3: 可配置自动保存间隔——I5-fix 提为顶层函数，init 与设置面板（数据）共用；
    原先是 init() 内的局部函数，设置面板调用时直接 ReferenceError */
 var _saveTimer=null;
@@ -50,7 +58,7 @@ function setupAutoSave(){
 }
 /* I5: 统一版本标签——网页与桌面共用一个来源（桌面端异步取 package.json 版本号，
    修复关于页把 Promise 拼进字符串显示"v[object Promise]"、网页端回退旧标签"G3"的问题） */
-let APP_VERSION="I5";
+let APP_VERSION="K6";
 if(window.electronAPI&&window.electronAPI.getVersion){
   try{window.electronAPI.getVersion().then(function(v){if(v)APP_VERSION="v"+v;}).catch(function(){});}catch(e){}
 }
@@ -176,7 +184,7 @@ async function restoreFiles(){
     if(file.kind==="img"){
       try{
         const b=await getBlob(file.id);
-        const bmp=await createImageBitmap(b);
+        const bmp=await createThumbnail(b);
         const max=300,sc=Math.min(1,max/Math.max(bmp.width,bmp.height));
         file.thumb=bmp;file.tw=bmp.width*sc;file.th=bmp.height*sc;
         for(const it of state.items){
@@ -1087,7 +1095,7 @@ function showModal(title,bodyHtml,actions){
     const b=document.createElement("button");
     b.className="modal-btn "+(a.primary?"primary":"secondary");
     b.textContent=a.label;
-    b.addEventListener("click",()=>{if(a.onClick)a.onClick();hideModal();});
+    b.addEventListener("click",async()=>{b.disabled=true;try{const result=a.onClick?await a.onClick():undefined;if(result!==false)hideModal();}catch(e){toast(e.message||"操作失败");}finally{b.disabled=false;}});
     actEl.appendChild(b);
   }
   /* 绑定关闭按钮 */
@@ -1181,104 +1189,8 @@ function showImportOptions(){
   showOptions("导入",opts);
 }
 /* G4: 统一导出 — scope=canvas/project, format=fantin/folder */
-function doExport(scope,format){
-  var cp=curProject();
-  if(!cp){toast("无当前项目");return;}
-  var canvasesToExport=scope==="project"?cp.canvases:[curCanvas()];
-  if(!canvasesToExport||!canvasesToExport.length){toast("无可导出的画布");return;}
-  var fileMeta=[],fileCardIds=[],canvases=[];
-  for(var c of canvasesToExport){
-    var cCopy=JSON.parse(JSON.stringify(c));
-    canvases.push(cCopy);
-    for(var it of c.items){
-      if(it.type==="fileCard"&&it.fileId){
-        var f=state.files.find(function(x){return x.id===it.fileId;});
-        if(f&&!fileCardIds.includes(it.fileId)){
-          fileCardIds.push(it.fileId);
-          /* I5-fix: 补记 url/kind——网页链接类文件没有二进制 blob，缺这两项会导致
-             导出→导入后链接文件整条丢失、画布卡片变孤儿 */
-          fileMeta.push({oldId:it.fileId,name:f.name,mime:f.mime||"application/octet-stream",url:f.url||null,kind:f.kind||null});
-        }
-      }
-    }
-  }
-  var structure={version:"G4",type:scope,exportedAt:Date.now(),projectName:cp.name,fileMeta:fileMeta,canvases:canvases};
-  var attPromises=fileCardIds.map(function(fid,idx){
-    var fileName=fileMeta[idx].name;
-    return getBlob(fid).then(function(b){if(!b)return null;return b.arrayBuffer().then(function(buf){return{id:fid,name:fileName,buffer:buf};});}).catch(function(){return null;});
-  });
-  Promise.all(attPromises).then(function(results){
-    var attachments=results.filter(function(r){return r!==null;});
-    var pkgName=(cp.name||"织见画布")+(scope==="project"?"":"-"+(curCanvas().name||"画布"));
-    var data={projectName:pkgName,structure:structure,attachments:attachments};
-    var apiFn=format==="fantin"?"exportFantin":"exportFolder";
-    window.electronAPI[apiFn](data).then(function(res){
-      if(res.ok)toast("已导出："+res.path+"（含 "+res.attachments+" 个附件）");
-      else toast("导出失败："+(res.error||"未知错误"));
-    });
-  });
-}
-/* G4: 统一导入 — format=fantin/folder，自动检测项目/画布 */
-function doImport(format,presetPath){
-  var apiFn=format==="fantin"?"importFantin":"importFolder";
-  window.electronAPI[apiFn](presetPath).then(function(res){
-    if(!res.ok){toast("导入失败："+(res.error||"未知错误"));return;}
-    var structure=res.structure;
-    var attachments=res.attachments||[];
-    var srcCanvases=structure.canvases;
-    if(!srcCanvases||!srcCanvases.length){toast("数据格式不正确：缺少画布数据");return;}
-    var fileIdMap={},restoredFiles=0;
-    var attachByName={};
-    for(var att of attachments)attachByName[att.name]=att;
-    var newProj={id:"p"+(uid++),name:(structure.projectName||"导入")+(structure.type==="project"?"":"（单画布）"),files:[],folders:[],canvases:[],isBuiltin:false};
-    for(var fm of (structure.fileMeta||[])){
-      var att=attachByName[fm.name];
-      var newFid="f"+(uid++);
-      if(!att){
-        /* I5-fix: 链接文件无二进制附件——从 fileMeta.url 重建，不再整条丢弃 */
-        if(fm.kind==="link"&&fm.url){
-          newProj.files.push({id:newFid,name:fm.name,kind:"link",mime:"",size:0,created:Date.now(),folderId:null,url:fm.url});
-          fileIdMap[fm.oldId]=newFid;restoredFiles++;
-        }
-        continue;
-      }
-      var blob=new Blob([att.buffer],{type:fm.mime||"application/octet-stream"});
-      newProj.files.push({id:newFid,name:fm.name,kind:fm.kind||kindOf(fm.name),mime:fm.mime||"application/octet-stream",size:blob.size,created:Date.now(),folderId:null,blob:blob});
-      if(blob&&idb){try{var tx=idb.transaction("files","readwrite");tx.objectStore("files").put(blob,newFid);}catch(_){}}
-      fileIdMap[fm.oldId]=newFid;restoredFiles++;
-    }
-    var canvasIdMap={};
-    for(var srcCanvas of srcCanvases){
-      var itemIdMap={};
-      var newCanvas={id:"c"+(uid++),name:srcCanvas.name||"导入的画布",items:[],camera:srcCanvas.camera||{x:0,y:0,zoom:1},previews:[],links:[],layoutVersion:srcCanvas.layoutVersion||3};
-      canvasIdMap[srcCanvas.id]=newCanvas.id;
-      for(var it of (srcCanvas.items||[])){
-        var newItem=JSON.parse(JSON.stringify(it));
-        var oldId=newItem.id;newItem.id=uid++;itemIdMap[oldId]=newItem.id;
-        if(newItem.parentId)newItem.parentId=itemIdMap[newItem.parentId]||null;
-        if(newItem.children)newItem.children=newItem.children.map(function(c){return itemIdMap[c]||c;});
-        if(newItem.attachIds)newItem.attachIds=newItem.attachIds.map(function(a){return itemIdMap[a]||a;});
-        if(newItem.type==="fileCard"&&newItem.fileId)newItem.fileId=fileIdMap[newItem.fileId]||newItem.fileId;
-        if(newItem.type==="connector"){if(newItem.a)newItem.a=itemIdMap[newItem.a]||newItem.a;if(newItem.b)newItem.b=itemIdMap[newItem.b]||newItem.b;}
-        if(newItem.jumpTo&&newItem.jumpTo.canvasId)newItem.jumpTo.canvasId=canvasIdMap[newItem.jumpTo.canvasId]||newItem.jumpTo.canvasId;
-        if(newItem.type==="note"&&!newItem.fontFamily)newItem.fontFamily=state.fontPreset||"clear";
-        newCanvas.items.push(newItem);
-      }
-      for(var lnk of (srcCanvas.links||[])){
-        var newLink=JSON.parse(JSON.stringify(lnk));newLink.id="lnk"+(uid++);
-        newLink.aId=itemIdMap[lnk.aId]||lnk.aId;newLink.bId=itemIdMap[lnk.bId]||lnk.bId;
-        newCanvas.links.push(newLink);
-      }
-      newProj.canvases.push(newCanvas);
-    }
-    state.projects.push(newProj);
-    state.activeProjectId=newProj.id;
-    state.activeCanvasId=newProj.canvases[0].id;
-    state.selected=null;syncUid();
-    renderSidePanel();render();fitAll();saveStateDebounced();
-    toast("已导入："+newProj.name+"（"+newProj.canvases.length+" 张画布，"+restoredFiles+" 个附件）");
-  });
-}
+function doExport(scope,format){return k6Export(scope,format);}
+function doImport(format,presetPath){return k6Import(format,presetPath);}
 function offerImport(){
   showOptions("导入材料",[
     {id:"file",label:"本地文件",desc:"选择一个或多个文件",icon:'<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 3v4a1 1 0 0 0 1 1h4"/><path d="M17 21H7a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h7l5 5v11a2 2 0 0 1-2 2Z"/></svg>',onClick:()=>fileInput.click()},
@@ -1526,6 +1438,7 @@ function init(){
   openDB().then(()=>{
     const resetForTest=SIMPLE_TEST_MODE&&resetLocalArchiveForSimpleTest();
     const has=resetForTest?false:loadState();
+    initK6();setupAutoSave();
     /* G4 fix: loadState 后重新 applyTheme，确保 autoTheme 生效 */
     applyTheme();
     if(!has){
@@ -1595,6 +1508,8 @@ function init(){
     /* G11: 退出确认 — 自定义 modal 替代系统对话框 */
     if(window.electronAPI.onShowQuitModal){
       window.electronAPI.onShowQuitModal(function(){
+        if(window.electronAPI.quitModalReady)window.electronAPI.quitModalReady();
+        saveState();
         showModal("",
           '<div style="text-align:center;padding:8px 0 4px">'+
             '<div style="width:52px;height:52px;margin:0 auto 14px;display:flex;align-items:center;justify-content:center;border-radius:50%;background:var(--accent-soft)">'+
@@ -1605,11 +1520,11 @@ function init(){
               '</svg>'+
             '</div>'+
             '<div style="font-size:15px;font-weight:600;color:var(--ink);margin-bottom:6px">确认退出织见？</div>'+
-            '<div style="font-size:12px;color:var(--ink-faint);line-height:1.5">画布数据已自动保存<br>可随时重新打开</div>'+
+            '<div style="font-size:12px;color:var(--ink-faint);line-height:1.5">退出前将检查画布与附件保存结果<br>保存失败时会保留窗口</div>'+
           '</div>',
           [
             {label:"取消",onClick:function(){if(window.electronAPI.cancelQuit)window.electronAPI.cancelQuit();}},
-            {label:"退出",primary:true,onClick:function(){window.electronAPI.confirmQuit();}}
+            {label:"退出",primary:true,onClick:async function(){if(await flushPersistence())window.electronAPI.confirmQuit();else{toast("保存未完成，请重试保存或导出备份后再退出");return false;}}}
           ]
         );
       });
@@ -1751,13 +1666,13 @@ function renderSettingsContent(catId,content){
       '<h4 style="margin:0 0 16px;font-size:14px">数据管理</h4>'+
       '<div style="margin-bottom:20px"><div style="font-size:12px;color:var(--ink-dim);margin-bottom:6px">存储方式</div>'+
       '<div style="font-size:12px;color:var(--ink)">'+(isDesktop?"桌面应用（Electron）":"浏览器 localStorage（网页版）")+'</div></div>'+
-      '<div style="margin-bottom:20px"><div style="font-size:12px;color:var(--ink-dim);margin-bottom:6px">自动保存间隔</div>'+
+      '<div style="margin-bottom:20px"><div style="font-size:12px;color:var(--ink-dim);margin-bottom:6px">定时补充保存</div>'+
       '<div style="display:flex;gap:6px">'+
       [{v:0,l:"关闭"},{v:10,l:"10秒"},{v:30,l:"30秒"},{v:60,l:"60秒"}].map(function(o){
         var on=state.saveInterval===o.v;
         return '<button class="saveIntBtn" data-v="'+o.v+'" style="padding:6px 12px;border:1px solid '+(on?"var(--accent)":"var(--card-border)")+';border-radius:8px;background:'+(on?"var(--accent-soft)":"var(--surface)")+';color:'+(on?"var(--accent)":"var(--ink-dim)")+';cursor:pointer;font:600 11px var(--font)">'+o.l+'</button>';
       }).join("")+
-      '</div><div style="font-size:11px;color:var(--ink-faint);margin-top:4px">关闭页面时无论设置如何都会自动保存</div></div>'+
+      '</div><div style="font-size:11px;color:var(--ink-faint);margin-top:4px">编辑后自动保存；此设置控制定时补充保存。关闭页面也会尝试保存</div></div>'+
       '<div style="margin-bottom:20px"><div style="font-size:12px;color:var(--ink-dim);margin-bottom:6px">数据备份</div>'+
       '<button id="setExportAll" style="padding:8px 16px;border:1px solid var(--accent);border-radius:8px;background:var(--accent-soft);color:var(--accent);cursor:pointer;font:600 12px var(--font)">导出全部数据</button>'+
       '<div style="font-size:11px;color:var(--ink-faint);margin-top:4px">所有项目、画布与附件的完整备份（JSON）；可通过「导入 → 从备份恢复」还原</div></div>'+
@@ -1765,11 +1680,13 @@ function renderSettingsContent(catId,content){
       '<button id="setClearCache" style="padding:8px 16px;border:1px solid var(--danger);border-radius:8px;background:var(--danger-soft);color:var(--danger);cursor:pointer;font:600 12px var(--font)">清除预览缓存</button>'+
       '<div style="font-size:11px;color:var(--ink-faint);margin-top:4px">清理文件预览的临时缓存，不影响数据</div></div>';
     /* I5-fix: 「文件存储位置」死设置已移除——storagePath 无任何消费方，UI 承诺从未兑现 */
+    const k6Tools=document.createElement("div");k6Tools.className="k6-tools";
+    for(const [label,action] of [["重试保存",retryPersistence],["恢复中心",showRecoveryCenter],["关系检查",showRelationCheck]]){const b=document.createElement("button");b.className="modal-btn secondary";b.textContent=label;b.onclick=action;k6Tools.appendChild(b);}content.prepend(k6Tools);
     var ea=content.querySelector("#setExportAll");if(ea)ea.onclick=function(){exportUserData();};
     content.querySelectorAll(".saveIntBtn").forEach(function(btn){btn.onclick=function(){state.saveInterval=parseInt(btn.dataset.v);saveStateDebounced();setupAutoSave();showSettings();toast("自动保存："+(state.saveInterval>0?state.saveInterval+"秒":"已关闭"));};});
     /* I5-fix: 清缓存改为真清 previewCache Map——此前删的 pv_* localStorage 键全代码无人写入，假成功 */
     var cc=content.querySelector("#setClearCache");if(cc)cc.onclick=function(){
-      try{previewCache.clear();toast("预览缓存已清除");}catch(e){toast("清除失败");}
+      try{clearPreviewCache();toast("预览缓存已清除");}catch(e){toast("清除失败");}
     };
   }
   else if(catId==="appearance"){
@@ -1929,7 +1846,7 @@ function renderSettingsContent(catId,content){
     var eb=content.querySelector("#exportAISkill");
     /* K2: 报告生成指引 + 解析脚本（导出和复制共用） */
     var PARSE_SCRIPT='#!/usr/bin/env node\nconst fs=require("fs");const d=JSON.parse(fs.readFileSync(process.argv[2],"utf8"));\nfunction nm(it,fm){if(it.type==="fileCard"&&it.fileId){var f=fm.find(function(m){return m.oldId===it.fileId});return"[附件] "+(f?f.name:"未知")}\nif(it.type==="note")return"[便签] "+(it.text||"").slice(0,40);return it.text||"(空)"}\nfunction tree(items,fm,nameMap,item,depth){var pad="  ".repeat(depth);var line=pad+(nameMap[item.id]||"(空)");\nif(item.annotation)line+=" //批注："+item.annotation;if(item.detail)line+=" [展开"+item.detail.length+"字]";console.log(line);\nitems.filter(function(i){return i.parentId===item.id}).forEach(function(c){tree(items,fm,nameMap,c,depth+1)})}\nconsole.log("=== 项目："+d.projectName+" ===");\nfor(var c of d.canvases){var items=c.items||[],links=c.links||[];var fm=d.fileMeta||[];\nvar nameMap={};items.forEach(function(it){nameMap[it.id]=nm(it,fm)});\nconsole.log("\\n--- 画布："+c.name+"（"+items.length+"元素 "+links.length+"连线）---");\nconsole.log("\\n[层级结构]");\nitems.filter(function(i){return !i.parentId||!items.some(function(p){return p.id===i.parentId})}).forEach(function(r){tree(items,fm,nameMap,r,0)});\nif(links.length){console.log("\\n[语义连线]");links.forEach(function(l){console.log((nameMap[l.aId]||l.aId).slice(0,40)+" --["+l.relationType+"]--> "+(nameMap[l.bId]||l.bId).slice(0,40)+(l.annotation?" //"+l.annotation:""))})}\nvar ann=items.filter(function(i){return i.annotation});if(ann.length){console.log("\\n[批注]");ann.forEach(function(i){console.log((nameMap[i.id]||i.id)+"："+i.annotation)})}\nvar notes=items.filter(function(i){return i.type==="note"});if(notes.length){console.log("\\n[便签]");notes.forEach(function(n){console.log(n.text)})}}\nif(d.fileMeta&&d.fileMeta.length){console.log("\\n[附件清单]");d.fileMeta.forEach(function(f,i){console.log((i+1)+". "+f.name+" ("+(f.kind||"unknown")+")")})}';
-    var reportGuide="\n\n---\n\n## 二、AI 读取 .fantin 生成报告\n\n### 素材边界铁律\n\n可联网查资料以辅助理解 .fantin 文件中的概念和关系，但报告的最终内容必须且只能来自 data.json 和附件原文。外部知识仅用于辅助理解，不可写入报告。每条数据、结论都标注来源。\n\n### 工作流程\n\n1. 解压 .fantin（ZIP 格式）：unzip xxx.fantin -d /tmp/fantin/\n2. 读 data.json（画布关系结构：节点、连线、层级、批注）\n3. 运行解析脚本（见下方），输出 AI 友好的关系网络文本\n4. 读 attachments/ 目录下所有 .md 文件全文\n5. 二进制附件（docx/xlsx/png）尝试转换读取，读不了用文件名标注\n6. 按关系网络层级组织报告，引用处加超链接和来源标注\n7. 报告保存到解压目录，超链接用相对路径 attachments/文件名\n\n### 数据来源标注格式\n\n> 数据来源：[附件名](attachments/附件名.md)\n> 画布批注：批注内容\n> 画布便签：便签内容\n\n### 关系类型对照\n\nrelated=关联 / supports=支撑 / causes=导致 / contradicts=反证 / evidence=证据\n\nparentId 构成层级树（不在 links 里），links 是跨层级语义连线，fileCard 的 fileId 指向 fileMeta 获取文件名。三种关系系统都要在报告中体现。\n\n### 解析脚本\n\n将以下脚本保存为 parse-fantin.js，运行 node parse-fantin.js data.json：\n\n~~~js\n"+PARSE_SCRIPT+"\n~~~\n\n### 报告要求\n\n- 全部元素都要用上（每个节点、附件、便签、批注）\n- 按层级树组织章节（根节点→章，子节点→节）\n- 语义连线在对应章节标注元素间关系\n- 附件内容填入对应章节，引用处加超链接\n- 报告末尾加附录：全部附件索引表\n";
+    var reportGuide="\n\n---\n\n## 二、AI 读取 .fantin 生成报告\n\n### 素材边界铁律\n\n可联网查资料以辅助理解 .fantin 文件中的概念和关系，但报告的最终内容必须且只能来自 data.json 和附件原文。外部知识仅用于辅助理解，不可写入报告。每条数据、结论都标注来源。\n\n### 工作流程\n\n1. 解压 .fantin（ZIP 格式）：unzip xxx.fantin -d /tmp/fantin/\n2. 读 data.json（画布关系结构：节点、连线、层级、批注）\n3. 运行解析脚本（见下方），输出 AI 友好的关系网络文本\n4. 读 attachments/ 目录下所有 .md 文件全文\n5. 二进制附件（docx/xlsx/png）尝试转换读取，读不了用文件名标注\n6. 按关系网络层级组织报告，引用处加超链接和来源标注\n7. 报告保存到解压目录，超链接用相对路径 attachments/packageName；旧版无 packageName 时回退到 name\n\n### 数据来源标注格式\n\n> 数据来源：[附件名](attachments/附件名.md)\n> 画布批注：批注内容\n> 画布便签：便签内容\n\n### 关系类型对照\n\nrelated=关联 / supports=支撑 / causes=导致 / contradicts=反证 / evidence=证据\n\nparentId 构成层级树（不在 links 里），links 是跨层级语义连线，fileCard 的 fileId 指向 fileMeta 获取文件名。三种关系系统都要在报告中体现。\n\n### 解析脚本\n\n将以下脚本保存为 parse-fantin.js，运行 node parse-fantin.js data.json：\n\n~~~js\n"+PARSE_SCRIPT+"\n~~~\n\n### 报告要求\n\n- 全部元素都要用上（每个节点、附件、便签、批注）\n- 按层级树组织章节（根节点→章，子节点→节）\n- 语义连线在对应章节标注元素间关系\n- 附件内容填入对应章节，引用处加超链接\n- 报告末尾加附录：全部附件索引表\n";
     if(eb)eb.onclick=function(){
       /* G3: 生成 AI Skill 文件并下载 */
       var stylesStr="";

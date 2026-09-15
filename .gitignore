@@ -43,3 +43,6 @@ blob-matching.json
 
 # WorkBuddy
 .workbuddy/
+
+# Local K6 build and verification artifacts
+/out/
