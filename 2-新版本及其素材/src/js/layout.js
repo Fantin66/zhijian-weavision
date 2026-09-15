@@ -652,6 +652,22 @@ function localAvoid(dragged){
      位置变化时按需失效重算。cur 查找用 idMap.get（O(1)）替代 state.items.find。 */
   const bcache=new Map();
   const bget=(it)=>{let b=bcache.get(it.id);if(!b){b=itemBounds(it);if(b)bcache.set(it.id,b);}return b;};
+  /* K7：大画布拖动优先保障手感。只处理拖动物附近的直接重叠对象，
+     避免一次轻微移动触发整张画布的级联避让。小画布仍保留完整级联避让。 */
+  if(state.items.length>360){
+    const db=bget(dragged);if(!db)return;
+    const RANGE=360;
+    for(const other of state.items){
+      if(other===dragged||other.type==="stroke"||other.type==="connector")continue;
+      const ob=bget(other);if(!ob||ob.x>db.x+db.w+RANGE||ob.x+ob.w<db.x-RANGE||ob.y>db.y+db.h+RANGE||ob.y+ob.h<db.y-RANGE)continue;
+      const ox=Math.min(db.x+db.w,ob.x+ob.w)-Math.max(db.x,ob.x),oy=Math.min(db.y+db.h,ob.y+ob.h)-Math.max(db.y,ob.y);
+      if(ox>4&&oy>4){
+        if(ox<oy){const push=ox/2+GAP;if(other.x+ob.w/2>db.x+db.w/2)other.x+=push;else other.x-=push;}
+        else{const push=oy/2+GAP;if(other.y+ob.h/2>db.y+db.h/2)other.y+=push;else other.y-=push;}
+      }
+    }
+    return;
+  }
   const queue=[dragged.id];
   const visited=new Set();
   for(let iter=0;iter<10;iter++){

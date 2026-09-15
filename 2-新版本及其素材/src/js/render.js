@@ -35,7 +35,7 @@ function drawColorful(c,x,y,w,h,r,sel,dark,color){
 function inViewport(b){const z=state.camera.zoom,m=80/z,vx=state.camera.x-m,vy=state.camera.y-m,vw=W/z+2*m,vh=H/z+2*m;return b.x<vx+vw&&b.x+b.w>vx&&b.y<vy+vh&&b.y+b.h>vy;}
 function render(){
   syncHistoryBtns();
-  rebuildIdMap(); /* H1 任务7: 每帧刷新 id→item 索引，供 localAvoid/collectKids/move 用 O(1) 查找 */
+  ensureIdMap();
   if(W<=0||H<=0){W=board.clientWidth||1;H=board.clientHeight||1;}
   /* F1 */
   const z=state.camera.zoom;
@@ -88,7 +88,7 @@ function render(){
     ctx.restore();
     /* 焦点：放大+发光 */
     ctx.save();
-    const focusIt=state.items.find(i=>i.id===focusId);
+    const focusIt=idMap.get(focusId);
     if(focusIt&&filterOk(focusIt)){
       const fb=itemBounds(focusIt);
       if(fb){
@@ -174,7 +174,7 @@ function render(){
   drawMarqueeSelection();
   /* 拖动/缩放期间不画 hover 框，避免框停在旧位置造成"漂移"观感 */
   if(state.hover && state.hover.id&&(!sel||state.hover.id!==sel.id)&&!drag){
-    const hov=state.items.find(x=>x.id===state.hover.id);
+    const hov=idMap.get(state.hover.id);
     if(hov&&filterOk(hov)&&(hov.type!=="mindNode"||isMindNodeVisible(hov))){
       const hb=itemBounds(hov);
       if(hb){
@@ -211,7 +211,7 @@ function render(){
     /* 聚焦模式下的非关联元素，淡出且不画搜索高亮 */
     const focusRel=state.focusMode?getRelated(state.focusMode.id):null;
     for(const id of state._hlIds){
-      const it=state.items.find(x=>x.id===id);
+      const it=idMap.get(id);
       if(!it||!filterOk(it)) continue;
       if(state.focusMode&&focusRel&&!focusRel.has(id))continue;
       const hb=itemBounds(it);
@@ -280,7 +280,7 @@ function render(){
   var linkTip=document.getElementById("linkPtTip");
   if(linkTip){
     if(state.linkPointHover){
-      var lnode=state.items.find(i=>i.id===state.linkPointHover);
+      var lnode=idMap.get(state.linkPointHover);
       if(lnode){
         var lb=itemBounds(lnode);
         var sx=(lb.x+lb.w-state.camera.x)*z,sy=(lb.y+lb.h/2-state.camera.y)*z;
@@ -291,8 +291,13 @@ function render(){
       }
     }else{linkTip.style.display="none";}
   }
-  updateSelBar();updateStatusBar();drawStatusHUD();updateFocusHud();
-  renderDock();   /* 下 Dock：随状态（idle/select/edit）同步切换内容 */
+  /* K7：相机手势中不写入与视图位置无关的 DOM，停止后下一帧再恢复。 */
+  if(state._camInteracting){
+    if(selbar)selbar.style.display="none";
+  }else{
+    updateSelBar();updateFocusHud();renderDock();
+  }
+  updateStatusBar();drawStatusHUD();
   /* J2-fix: 缩放/平移时跳过 DOM 同步 + 隐藏覆盖层——预览内容用 canvas 占位替代，
      停止后 200ms 自动恢复。避免 syncDetailReadDom 的 scrollWidth/Height 重排和
      syncMorphDom/syncPvDom 的逐元素样式写入拖慢缩放帧率 */
@@ -750,14 +755,16 @@ function drawMindConnections(scope){
   const z=state.camera.zoom;
   const now=performance.now();
   const SC=styleCfg();
-  const nodes=state.items.filter(it=>it.type==="mindNode"&&it.parentId);
-  for(const ch of nodes){
+  for(const ch of state.items){
+    if(ch.type!=="mindNode"||!ch.parentId)continue;
     const p=idMap.get(ch.parentId);
     if(!p||!isMindNodeVisible(ch)||!isMindNodeVisible(p)) continue;
     if(scope&&(!scope.has(ch.id)||!scope.has(p.id))) continue;
     /* 通用规则：由实际相对位置推导出口/入口侧（布局期与主轴规则一致；
        拖动后实时跟随真实方位——被拖到异侧/上下颠倒时自动换向，不脱落不偏离） */
     const pb=itemBounds(p),chb=itemBounds(ch);
+    const lineBounds={x:Math.min(pb.x,chb.x),y:Math.min(pb.y,chb.y),w:Math.max(pb.x+pb.w,chb.x+chb.w)-Math.min(pb.x,chb.x),h:Math.max(pb.y+pb.h,chb.y+chb.h)-Math.min(pb.y,chb.y)};
+    if(!inViewport(lineBounds))continue;
     const sides=relAnchors(pb,chb);
     let pa=anchorOn(pb,sides.out),cb=anchorOn(chb,sides.inp);
     /* 平滑过渡：拖动的每一帧对端点/朝向做指数平滑（约90ms收敛），

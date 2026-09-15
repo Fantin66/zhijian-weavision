@@ -929,6 +929,9 @@ function drawLinks(scope){
     const a=idMap.get(l.aId),b=idMap.get(l.bId);
     if((a&&a.type==="mindNode"&&!isMindNodeVisible(a))||(b&&b.type==="mindNode"&&!isMindNodeVisible(b)))continue;
     const curve=linkCurve(l);if(!curve)continue;
+    /* 控制点位于端点盒内，保守裁剪仍会保留穿过视口的关系线。 */
+    const curveBounds={x:Math.min(curve.ea.x,curve.eb.x),y:Math.min(curve.ea.y,curve.eb.y),w:Math.abs(curve.ea.x-curve.eb.x),h:Math.abs(curve.ea.y-curve.eb.y)};
+    if(!inViewport(curveBounds))continue;
     const {ea,eb,mx}=curve;
     ctx.save();
     const rel=RELATION_TYPES[l.relationType]||RELATION_TYPES.related;

@@ -43,30 +43,26 @@ canvas.addEventListener("dblclick",e=>{
     }
   }
 });
-/* 悬停：高亮 + 光标反馈（mousemove 驱动，CDP 下也稳定派发） */
-canvas.addEventListener("mousemove",e=>{
-  const bxy=boardXY(e.clientX,e.clientY);
-  const wpt=s2w(bxy.x,bxy.y);
+/* K7：悬停命中按动画帧合并。高频鼠标事件不再重复扫描整张画布。 */
+let _hoverQueued=false,_hoverPoint=null;
+function flushHover(){
+  _hoverQueued=false;
+  const p=_hoverPoint;if(!p||drag)return;
+  const bxy=boardXY(p.clientX,p.clientY),wpt=s2w(bxy.x,bxy.y);
   state.mouseWorld=wpt;
-  const hit=hoverHit(wpt.x,wpt.y);
-  const linkPt=hitMindLinkPoint(wpt.x,wpt.y);
+  const hit=hoverHit(wpt.x,wpt.y),linkPt=hitMindLinkPoint(wpt.x,wpt.y);
   const hkey=hit?hit.type+":"+hit.id:linkPt?"linkpt:"+linkPt.id:null;
   const prev=state.hover?state.hover.type+":"+state.hover.id:state.linkPointHover?"linkpt:"+state.linkPointHover:null;
-  if(hkey!==prev){
-    state.hover=hit?{id:hit.id,type:hit.type}:null;
-    state.linkPointHover=linkPt?linkPt.id:null;
-    requestRender();
-  }
-  const htype=hit?hit.type:null;
-  let cur="default";
-  if(state.tempTool==="pen") cur="crosshair";
-  else if(state.tempTool==="note") cur="copy";
-  else if(linkPt) cur="crosshair";
-  else if(htype==="mindNode") cur="pointer";
-  else if(htype==="fileCard") cur="pointer";
-  else if(htype==="note") cur="move";
-  else if(isConnectionItem(hit)) cur="move";
+  if(hkey!==prev){state.hover=hit?{id:hit.id,type:hit.type}:null;state.linkPointHover=linkPt?linkPt.id:null;requestRender();}
+  const htype=hit?hit.type:null;let cur="default";
+  if(state.tempTool==="pen")cur="crosshair";else if(state.tempTool==="note")cur="copy";
+  else if(linkPt)cur="crosshair";else if(htype==="mindNode"||htype==="fileCard")cur="pointer";
+  else if(htype==="note"||isConnectionItem(hit))cur="move";
   canvas.style.cursor=cur;
+}
+canvas.addEventListener("mousemove",e=>{
+  _hoverPoint={clientX:e.clientX,clientY:e.clientY};
+  if(!_hoverQueued){_hoverQueued=true;requestAnimationFrame(flushHover);}
 });
 canvas.addEventListener("mouseleave",()=>{if(state.hover){state.hover=null;}if(state.linkPointHover){state.linkPointHover=null;}requestRender();});
 let trackpadPanUntil=0;
@@ -127,14 +123,14 @@ function beginMoveDrag(hit,wpt,pointer,marqueeSelect){
   deferHistory();
   const startPosMap={},startPtsMap={};
   const ids=state.multiSel.length>1?state.multiSel:[hit.id];
-  const allIds=new Set(ids);
+  const allIds=new Set(ids),visited=new Set();
   for(const mid of ids){
     const mi=idMap.get(mid);
     if(mi&&mi.type==="mindNode"){
-      const collectKids=node=>{for(const cid of node.children||[]){
-        allIds.add(cid);const child=idMap.get(cid);if(child)collectKids(child);
-      }};
-      collectKids(mi);
+      const pending=[mi];
+      while(pending.length){const node=pending.pop();if(!node||visited.has(node.id))continue;visited.add(node.id);
+        for(const cid of node.children||[]){allIds.add(cid);const child=idMap.get(cid);if(child)pending.push(child);}
+      }
     }
   }
   for(const mid of allIds){
@@ -144,14 +140,14 @@ function beginMoveDrag(hit,wpt,pointer,marqueeSelect){
   drag={mode:"move",item:hit,start:wpt,startX:hit.x,startY:hit.y,movedDist:0,startPosMap,startPtsMap,
     startPts:hit.type==="stroke"?hit.points.map(p=>({...p})):null,
     startA:hit.type==="connector"?{ax:hit.a.x,ay:hit.a.y,bx:hit.b.x,by:hit.b.y,af:!!hit.a.free,bf:!!hit.b.free}:null,
-    marqueeSelect:!!marqueeSelect,pointer};
+    moveIds:[...allIds],marqueeSelect:!!marqueeSelect,pointer};
   canvas.setPointerCapture(pointer);
 }
 function onPointerDown(e){
   /* 防御：如果上一次交互的 drag 未正常结束（如指针在窗口外释放），
      清除残留状态，避免后续交互失效 */
   if(drag&&!e.buttons){drag=null;board.classList.remove("panning");}
-  rebuildIdMap(); /* H1 任务7: 交互前刷新 id→item 索引，collectKids/move-loop 即时命中最新元素 */
+  ensureIdMap();
   hideCtxMenu();
   if(editingNoteId!==null||editingDetailId!==null) closeEditor(false);
   if(editingMindId!==null) closeMindEditor(false);
@@ -362,26 +358,8 @@ function onPointerMove(e){
     drag.movedDist=(drag.movedDist||0)+Math.abs(dx)+Math.abs(dy);
     if(drag.movedDist>3)flushDeferredHistory();
     const it=drag.item;
-    /* 多选拖动：所有选中元素一起移动 */
-    const moveIds=(state.multiSel.length>1?state.multiSel:[it.id]);
-    /* 收集需要联动的所有元素（选中元素+其后代节点） */
-    const allMoveIds=new Set(moveIds);
-    for(const mid of moveIds){
-      const mi=idMap.get(mid);
-      if(mi&&mi.type==="mindNode"){
-        /* 递归收集所有后代节点 */
-        const collectKids=(node)=>{
-          if(!node.children)return;
-          for(const cid of node.children){
-            allMoveIds.add(cid);
-            const child=idMap.get(cid);
-            if(child)collectKids(child);
-          }
-        };
-        collectKids(mi);
-      }
-    }
-    for(const mid of allMoveIds){
+    /* 移动集合在 pointerdown 时建立，pointermove 只更新坐标。 */
+    for(const mid of drag.moveIds||[it.id]){
       const mi=idMap.get(mid);
       if(!mi)continue;
       if(mi.type==="stroke"&&drag.startPtsMap&&drag.startPtsMap[mid]){

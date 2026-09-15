@@ -3,7 +3,12 @@
    IndexedDB / 持久化
 ============================================================ */
 const DB_NAME="boardlib",DB_VER=2;
-let idb=null;
+let idb=null,_idleSaveTimer=0;
+/* K7：周期保存不抢占拖动或相机手势；结束后自动补写。 */
+function saveWhenIdle(){
+  if(_idleSaveTimer)return;
+  _idleSaveTimer=setTimeout(()=>{_idleSaveTimer=0;saveState();},260);
+}
 function openDB(){
   return new Promise((res,rej)=>{
     const rq=indexedDB.open(DB_NAME,DB_VER);
@@ -18,6 +23,7 @@ function openDB(){
   });
 }
 function saveState(){
+  if(drag||state._camInteracting){saveWhenIdle();return true;}
   try{
     const data={
       projects:state.projects.map(p=>({
@@ -58,7 +64,7 @@ function setupAutoSave(){
 }
 /* I5: 统一版本标签——网页与桌面共用一个来源（桌面端异步取 package.json 版本号，
    修复关于页把 Promise 拼进字符串显示"v[object Promise]"、网页端回退旧标签"G3"的问题） */
-let APP_VERSION="K6";
+let APP_VERSION="K7";
 if(window.electronAPI&&window.electronAPI.getVersion){
   try{window.electronAPI.getVersion().then(function(v){if(v)APP_VERSION="v"+v;}).catch(function(){});}catch(e){}
 }
@@ -203,10 +209,15 @@ async function restoreFiles(){
    drawStatusHUD 在 render 尾部用 canvas 直接绘制（无白底框、亮度自适应）
 ============================================================ */
 let HUD=null;
+let _hudItems=null,_hudLength=-1,_hudCounts=null;
 function updateStatusBar(){
   const sel=selectedItem();
-  const cnt={mindNode:0,note:0,fileCard:0,stroke:0,connector:0};
-  for(const it of state.items){if(cnt[it.type]!==undefined)cnt[it.type]++;}
+  let cnt=_hudCounts;
+  if(_hudItems!==state.items||_hudLength!==state.items.length||!cnt){
+    cnt={mindNode:0,note:0,fileCard:0,stroke:0,connector:0};
+    for(const it of state.items){if(cnt[it.type]!==undefined)cnt[it.type]++;}
+    _hudItems=state.items;_hudLength=state.items.length;_hudCounts=cnt;
+  }
   /* 彩点计数段：保留原色点语义 */
   const dots={mindNode:"#3a4a6b",note:"#c48840",fileCard:"#c48840",stroke:"#6e7080",connector:"#2a7a6a"};
   const segs=[];

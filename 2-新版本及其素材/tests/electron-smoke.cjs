@@ -10,7 +10,7 @@ const results=[],errors=[];
 app.whenReady().then(async()=>{
   let win;
   try{
-    for(const [name,value] of Object.entries({'get-version':'0.8.0','get-system-theme':false,'get-open-file':null,'set-taskbar-icon':{ok:true},'set-fantin-icon':{ok:true},'quit-modal-ready':true,'cancel-quit':true}))ipcMain.handle(name,()=>value);
+    for(const [name,value] of Object.entries({'get-version':'0.9.0','get-system-theme':false,'get-open-file':null,'set-taskbar-icon':{ok:true},'set-fantin-icon':{ok:true},'quit-modal-ready':true,'cancel-quit':true}))ipcMain.handle(name,()=>value);
     win=new BrowserWindow({show:false,width:1440,height:900,webPreferences:{preload:path.join(resources,'app.asar','preload.js'),contextIsolation:true,nodeIntegration:false,sandbox:true}});
     win.webContents.on('console-message',(_event,level,message)=>{if(level>=3)errors.push(message);});
     await win.loadFile(path.join(resources,'index.html'));
@@ -24,7 +24,7 @@ app.whenReady().then(async()=>{
       return {version:await window.electronAPI.getVersion(),saved,recovery,files:snapshot.fileMeta.length,canvasItems:curCanvas().items.length};
     })()`);
     results.push(result);
-    if(result.version!=='0.8.0'||!result.saved||!result.recovery||result.files!==1||result.canvasItems!==1)throw new Error('Desktop regression failed');
+    if(result.version!=='0.9.0'||!result.saved||!result.recovery||result.files!==1||result.canvasItems!==1)throw new Error('Desktop regression failed');
     if(errors.length)throw new Error(errors.join('\n'));
     console.log(JSON.stringify({ok:true,results,errors}));
   }catch(e){console.error(JSON.stringify({ok:false,error:e.stack,results,errors}));process.exitCode=1;}

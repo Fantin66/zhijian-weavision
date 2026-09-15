@@ -104,8 +104,13 @@ let uid=1,drag=null,renderQueued=false,focusTransition=1;
 /* I5-fix: 裸全局 linkPointHover 已删——连接点悬停态统一存 state.linkPointHover
    （此前读写分裂在两个变量上，悬停提示永远不显示） */
 /* H1 任务7: id→item 索引，供 collectKids/localAvoid/move-loop 用 O(1) 查找替代 state.items.find */
-let idMap=new Map();
-function rebuildIdMap(){idMap=new Map();for(const it of state.items)idMap.set(it.id,it);}
+let idMap=new Map(),idMapItems=null,idMapLength=-1;
+/* K7：索引只在画布内容集合改变时重建。相机移动、悬停和逐帧绘制不再扫描整张画布。 */
+function rebuildIdMap(){
+  const items=state.items;idMap=new Map();for(const it of items)idMap.set(it.id,it);
+  idMapItems=items;idMapLength=items.length;
+}
+function ensureIdMap(){if(idMapItems!==state.items||idMapLength!==state.items.length)rebuildIdMap();return idMap;}
 /* 代理属性：items/camera/files/folders/previews 始终指向当前项目/画布 */
 function curProject(){return state.projects.find(p=>p.id===state.activeProjectId)||state.projects[0];}
 function curCanvas(){
@@ -314,8 +319,12 @@ function redo(){
   syncHistoryBtns();render();saveStateDebounced();
   toast("重做："+entry.label);
 }
+let _historyButtonState="";
 function syncHistoryBtns(){
   activateHistory();
+  const next=(undoStack.length?1:0)+":"+(redoStack.length?1:0);
+  if(next===_historyButtonState)return;
+  _historyButtonState=next;
   document.getElementById("undoBtn").style.opacity=undoStack.length?1:.4;
   document.getElementById("redoBtn").style.opacity=redoStack.length?1:.4;
 }
