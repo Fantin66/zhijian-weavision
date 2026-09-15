@@ -3,7 +3,7 @@ const {app,BrowserWindow,ipcMain}=require('electron');
 const fs=require('fs'),path=require('path'),os=require('os');
 const root=path.resolve(__dirname,'../..'),resources=process.argv[2];
 app.setPath('userData',fs.mkdtempSync(path.join(os.tmpdir(),'zhijian-k8-')));
-const out=path.join(root,'out/k8-validation');fs.mkdirSync(out,{recursive:true});
+const out=path.join(root,'out/k8.1-validation');fs.mkdirSync(out,{recursive:true});
 function pdfFixture(){
  const objects=['<< /Type /Catalog /Pages 2 0 R >>','<< /Type /Pages /Kids [3 0 R 4 0 R] /Count 2 >>',...Array.from({length:2},()=> '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 300 400] /Resources << >> >>')];
  let text='%PDF-1.4\n',offsets=[0];objects.forEach((v,i)=>{offsets.push(Buffer.byteLength(text));text+=(i+1)+' 0 obj\n'+v+'\nendobj\n';});
@@ -16,7 +16,7 @@ function docxFixture(){
 app.whenReady().then(async()=>{
  let win;const errors=[];
  try{
-  for(const [key,value] of Object.entries({'get-version':'0.10.0','get-system-theme':false,'get-open-file':null,'set-taskbar-icon':{ok:true},'set-fantin-icon':{ok:true},'quit-modal-ready':true}))ipcMain.handle(key,()=>value);
+  for(const [key,value] of Object.entries({'get-version':'0.10.1','get-system-theme':false,'get-open-file':null,'set-taskbar-icon':{ok:true},'set-fantin-icon':{ok:true},'quit-modal-ready':true}))ipcMain.handle(key,()=>value);
   win=new BrowserWindow({show:false,width:1440,height:900,webPreferences:{offscreen:true,preload:resources?path.join(resources,'app.asar/preload.js'):path.join(root,'2-新版本及其素材/desktop/electron/preload.js'),contextIsolation:true,nodeIntegration:false,backgroundThrottling:false}});
   win.webContents.on('console-message',(_e,level,message)=>{if(level>=3)errors.push(message);});
   await win.loadFile(resources?path.join(resources,'index.html'):path.join(root,'2-新版本及其素材/织见-思维关系板-K6.html'));
@@ -30,22 +30,28 @@ app.whenReady().then(async()=>{
    c.items=[{id:uid++,type:'fileCard',fileId:f.id,name:f.name,kind:'text',x:80,y:60,w:600,h:440,previewOpen:true,_morphW:600,_morphH:440}];
    state.camera={x:0,y:0,zoom:1};renderSidePanel();render();await wait(350);
    const card=c.items[0],m=getMorph(card.id);assert(m.body.textContent.includes('阅读研究'),'Markdown preview');
-   const startRect=m.el.getBoundingClientRect();state._camInteracting=true;state.camera={x:40,y:30,zoom:.8};render();
-   const r=m.el.getBoundingClientRect(),expected=w2s(card.x,card.y),boardRect=board.getBoundingClientRect();
-   assert(Math.abs(r.x-boardRect.x-expected.x)<2&&Math.abs(r.y-boardRect.y-expected.y)<2,'Preview camera alignment');
-   assert(getComputedStyle(previewLayer).visibility!=='hidden','Preview must stay visible');
+   const savedPosition=m.el.style.cssText;state._camInteracting=true;state.camera={x:40,y:30,zoom:.8};render();
+   assert(getComputedStyle(previewLayer).visibility==='hidden','Preview must pause during camera interaction');
+   assert(m.el.style.cssText===savedPosition,'No preview geometry updates during interaction');
    state._camInteracting=false;render();
+   const r=m.el.getBoundingClientRect(),expected=w2s(card.x,card.y),boardRect=board.getBoundingClientRect();
+   assert(Math.abs(r.x-boardRect.x-expected.x)<2&&Math.abs(r.y-boardRect.y-expected.y)<2,'Restored preview alignment');
+   assert(getComputedStyle(previewLayer).visibility!=='hidden'&&getMorph(card.id)===m,'Restore cached preview immediately');
+   for(const mode of ['pan','move','resize']){drag={mode};render();assert(getComputedStyle(previewLayer).visibility==='hidden','Pause preview for '+mode);drag=null;render();assert(getComputedStyle(previewLayer).visibility!=='hidden','Restore preview for '+mode);}
    const gaps=[];let last=performance.now(),running=true;function sample(t){gaps.push(t-last);last=t;if(running)requestAnimationFrame(sample);}requestAnimationFrame(sample);
-   animateCamera(0,0,1);await wait(80);animateCamera(20,10,.9);await wait(500);running=false;
+   state.reducedMotion=true;animateCamera(0,0,1);await wait(60);
+   assert(state._camInteracting&&state.camera.zoom>.8&&state.camera.zoom<1,'Background toggle must not disable camera animation');
+   animateCamera(20,10,.9);await wait(500);running=false;
    assert(state.camera.x===20&&state.camera.y===10&&state.camera.zoom===.9,'Latest camera animation wins');
    assert(getMorph(card.id)===m,'Preview DOM reused');
+   enterFocus(card.id);await wait(60);assert(focusTransition>0&&focusTransition<1&&state._camInteracting,'Focus fade and camera animation remain');await wait(300);exitFocus();await wait(300);
    state._camInteracting=true;card.name='保存验证';assert(saveState(),'Explicit save');assert(JSON.parse(localStorage.getItem('board-state')).projects.find(x=>x.id===p.id).canvases[0].items[0].name==='保存验证','Save really persisted during interaction');state._camInteracting=false;
    const target=createProject('目标项目');target.folders.push({id:'existing',name:'阅读研究',parentId:null});
    state.activeProjectId=p.id;state.activeCanvasId=c.id;moveCanvasToProject(c.id,target.id);
    const moved=target.files.find(x=>x.id===f.id),folder=target.folders.find(x=>x.id===moved.folderId);
    assert(folder.name==='阅读研究（2）','Folder collision');assert(p.files.includes(f),'Source retained');assert(await readStoredBlob(moved),'Moved attachment readable');
    await wait(350);render();const sorted=gaps.filter(n=>n>0).sort((a,b)=>a-b);
-   return {checks:8,frameGaps:{samples:sorted.length,p95:sorted[Math.floor(sorted.length*.95)],max:sorted.at(-1)},folder:folder.name};
+   return {previewPaused:true,cachedRestore:true,dragPause:true,cameraAnimation:true,focusAnimation:true,frameGaps:{samples:sorted.length,p95:sorted[Math.floor(sorted.length*.95)],max:sorted.at(-1)},folder:folder.name};
   })()`);
   fs.writeFileSync(path.join(out,'light.png'),(await win.webContents.capturePage()).toPNG());
   await win.webContents.executeJavaScript(`(async()=>{state.dark=true;_applyThemeInner();render();await new Promise(r=>setTimeout(r,250));if(getComputedStyle(document.getElementById('saveStatus')).position!=='fixed')throw new Error('Save status CSS broken');})()`);

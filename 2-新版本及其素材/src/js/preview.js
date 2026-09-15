@@ -138,6 +138,7 @@ async function openWithExternalApp(f){
   }).catch(()=>toast("读取文件失败"));
 }
 function syncPvDom(){
+  if(previewInteractionActive())return;
   const z=state.camera.zoom;
   const existing=new Map();
   for(const child of previewLayer.children){
@@ -410,6 +411,7 @@ const morphMap=new Map();            /* cardId -> {el,fileId,token} */
 let morphToken=0;                    /* 全局令牌：任一覆盖层重建/销毁时递增，作废在途回调 */
 function getMorph(cardId){return morphMap.get(String(cardId));}
 function ensureMorphDom(it){
+  if(previewInteractionActive())return;
   if(!it||it.type!=="fileCard")return;
   const ex=getMorph(it.id);
   if(ex&&ex.fileId===it.fileId)return;   /* 同卡同文件已渲染，复用不重建 */

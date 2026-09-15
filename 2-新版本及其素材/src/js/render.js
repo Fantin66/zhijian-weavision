@@ -296,17 +296,16 @@ function render(){
     }else{linkTip.style.display="none";}
   }
   /* K7：相机手势中不写入与视图位置无关的 DOM，停止后下一帧再恢复。 */
-  if(state._camInteracting){
+  if(previewInteractionActive()){
     if(selbar)selbar.style.display="none";
   }else{
     updateSelBar();updateFocusHud();renderDock();
   }
   updateStatusBar();drawStatusHUD();
-  /* K8：相机移动时按上次同步坐标整体变换已有读层，保留内容，避免逐项重排。 */
-  if(state._camInteracting&&_previewCamera){
-    const z=state.camera.zoom/_previewCamera.zoom;
-    const transform="translate("+((_previewCamera.x-state.camera.x)*state.camera.zoom)+"px,"+((_previewCamera.y-state.camera.y)*state.camera.zoom)+"px) scale("+z+")";
-    for(const layer of [previewLayer,typeof detailReadLayer!=="undefined"?detailReadLayer:null])if(layer){layer.style.overflow="visible";layer.style.transformOrigin="0 0";layer.style.transform=transform;}
+  /* 操作中隐藏并暂停预览同步；停止后复用已有内容，不销毁、不重新解析。 */
+  if(previewInteractionActive()){
+    if(previewLayer)previewLayer.style.visibility="hidden";
+    if(typeof detailReadLayer!=="undefined"&&detailReadLayer)detailReadLayer.style.visibility="hidden";
   }else{
     for(const layer of [previewLayer,typeof detailReadLayer!=="undefined"?detailReadLayer:null])if(layer){layer.style.transform="";layer.style.overflow="";}
     if(previewLayer)previewLayer.style.visibility="";
@@ -314,7 +313,6 @@ function render(){
     syncMorphDom();
     if(typeof syncDetailReadDom==="function")syncDetailReadDom();
     syncPvDom();
-    _previewCamera={...state.camera};
   }
   /* 连接待选态清理：待选元素被删/不存在时退出待选 */
   if(linkPendingId!==null&&!state.items.some(i=>i.id===linkPendingId))linkPendingId=null;
@@ -388,8 +386,9 @@ function syncPvContentZoom(el,pv,z){
 /* ============================================================
    左热区/Dock 相关同步（保留原 syncMorphDom）
 ============================================================ */
-let _previewCamera=null;
+function previewInteractionActive(){return !!(state._camInteracting||(drag&&["pan","move","resize"].includes(drag.mode)));}
 function syncMorphDom(){
+  if(previewInteractionActive())return;
   /* 防御：扫描 previewLayer 中的孤儿 .pv-morph 元素（不在 morphMap 中的残留覆盖层），
      避免残留 DOM 拦截画布指针事件导致附件拖不动 */
   const layer=document.getElementById("previewLayer");
@@ -2316,7 +2315,8 @@ function animateCamera(tx,ty,tz){
   const generation=++_cameraAnimation;
   if(typeof _camTimer!=="undefined")clearTimeout(_camTimer);
   const sx=state.camera.x,sy=state.camera.y,sz=state.camera.zoom;
-  const start=performance.now();const dur=state.reducedMotion?0:200;
+  /* reducedMotion 是既有的背景流光开关，不能借它关闭纵览/聚焦动画。 */
+  const start=performance.now();const dur=200;
   state._camInteracting=true;
   function step(){
     if(generation!==_cameraAnimation)return;

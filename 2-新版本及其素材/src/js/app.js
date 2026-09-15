@@ -65,7 +65,7 @@ function setupAutoSave(){
 }
 /* I5: 统一版本标签——网页与桌面共用一个来源（桌面端异步取 package.json 版本号，
    修复关于页把 Promise 拼进字符串显示"v[object Promise]"、网页端回退旧标签"G3"的问题） */
-let APP_VERSION="K8";
+let APP_VERSION="K8.1";
 if(window.electronAPI&&window.electronAPI.getVersion){
   try{window.electronAPI.getVersion().then(function(v){if(v)APP_VERSION="v"+v;}).catch(function(){});}catch(e){}
 }
@@ -1716,7 +1716,7 @@ function renderSettingsContent(catId,content){
       '<div style="font-size:12px;color:var(--ink-dim)">背景流光</div>'+
       '<div id="bgFlowSwitch" style="width:44px;height:24px;border-radius:12px;background:'+(state.reducedMotion?"var(--card-border)":"var(--accent)")+';position:relative;cursor:pointer;transition:background .2s ease;flex:none">'+
       '<div style="position:absolute;top:2px;left:'+(state.reducedMotion?"2px":"22px")+';width:20px;height:20px;border-radius:50%;background:#fff;box-shadow:0 1px 3px rgba(0,0,0,.3);transition:left .2s ease"></div></div></div>'+
-      '<div style="font-size:11px;color:var(--ink-faint)">关闭后停止背景漂浮，纵览也直接定位，减少动态效果。</div></div>'+
+      '<div style="font-size:11px;color:var(--ink-faint)">控制背景色块的缓慢漂浮，不影响纵览与聚焦动画。</div></div>'+
       '<div style="margin-bottom:20px"><div style="font-size:12px;color:var(--ink-dim);margin-bottom:8px">Fantin 文件图标</div>'+
       '<div style="display:flex;gap:12px">'+
       [1,2,3].map(function(n){var on=(state.fantinIcon||2)===n;return '<div class="fantinIconBtn" data-n="'+n+'" style="flex:1;cursor:pointer;padding:12px;border:2px solid '+(on?"var(--accent)":"var(--card-border)")+';border-radius:12px;text-align:center;transition:all .15s ease"><img src="src/assets/icons/fantin-'+n+'.ico" style="width:48px;height:48px;object-fit:contain;margin-bottom:8px"><div style="font-size:11px;font-weight:600;color:'+(on?"var(--accent)":"var(--ink-dim)")+'">第'+n+'张</div></div>';}).join("")+
