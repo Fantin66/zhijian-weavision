@@ -17,9 +17,9 @@ app.whenReady().then(async()=>{
       const p=createProject('K7 性能验证'),c=curCanvas(),root={id:'perf-root',type:'mindNode',text:'性能根节点',x:0,y:0,children:[],color:'#3a4a6b'};
       c.items=[root];c.links=[];
       for(let i=1;i<5000;i++){const id='perf-'+i;root.children.push(id);c.items.push({id,type:'mindNode',text:'节点 '+i,x:(i%100)*260+320,y:Math.floor(i/100)*110,children:[],parentId:root.id,color:'#6f8ed9'});}
-      c.camera={x:0,y:0,zoom:1};ZhijianPerf.enable();ZhijianPerf.clear();render();render();render();
+      c.camera={x:0,y:0,zoom:1};ZhijianPerf.enable();render();ZhijianPerf.clear();for(let i=0;i<8;i++)render();
       const s=ZhijianPerf.snapshot();
-      if(s.frames<3||s.last.items!==5000||s.last.visible>=5000||!Number.isFinite(s.p95))throw new Error('Invalid performance snapshot '+JSON.stringify(s));
+      if(s.frames<8||s.last.items!==5000||s.last.visible>=5000||!Number.isFinite(s.p95))throw new Error('Invalid performance snapshot '+JSON.stringify(s));
       return s;
     })()`);
     console.log(JSON.stringify({ok:true,result}));

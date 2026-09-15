@@ -766,6 +766,11 @@ function drawMindConnections(scope){
     /* 通用规则：由实际相对位置推导出口/入口侧（布局期与主轴规则一致；
        拖动后实时跟随真实方位——被拖到异侧/上下颠倒时自动换向，不脱落不偏离） */
     const pb=itemBounds(p),chb=itemBounds(ch);
+    const mindId="mind:"+p.id+":"+ch.id;
+    const isSel=state.selected===ch.id||state.selected===p.id||state.selected===mindId;
+    /* K7：大画布中，屏幕外未选中分支的长线只会堆成噪点。
+       子节点进入视口或任一端被选中时仍完整绘制。 */
+    if(state.items.length>1000&&!isSel&&inViewport(pb)&&!inViewport(chb))continue;
     const lineBounds={x:Math.min(pb.x,chb.x),y:Math.min(pb.y,chb.y),w:Math.max(pb.x+pb.w,chb.x+chb.w)-Math.min(pb.x,chb.x),h:Math.max(pb.y+pb.h,chb.y+chb.h)-Math.min(pb.y,chb.y)};
     if(!inViewport(lineBounds))continue;
     const sides=relAnchors(pb,chb);
@@ -775,8 +780,6 @@ function drawMindConnections(scope){
     const sm=smoothLinkEndpoints({id:"mind:"+p.id+":"+ch.id},pa,cb,sides.out,sides.inp);
     pa=sm.ea;cb=sm.eb;
     const outSide=sm.outSide,inpSide=sm.inpSide;
-    const mindId="mind:"+p.id+":"+ch.id;
-    const isSel=state.selected===ch.id||state.selected===p.id||state.selected===mindId;
     /* 生长动画 */
     let grow=1;
     if(ch.birth){
