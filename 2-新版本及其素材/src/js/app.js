@@ -65,7 +65,7 @@ function setupAutoSave(){
 }
 /* I5: 统一版本标签——网页与桌面共用一个来源（桌面端异步取 package.json 版本号，
    修复关于页把 Promise 拼进字符串显示"v[object Promise]"、网页端回退旧标签"G3"的问题） */
-let APP_VERSION="K8.3";
+let APP_VERSION="K8.4";
 if(window.electronAPI&&window.electronAPI.getVersion){
   try{window.electronAPI.getVersion().then(function(v){if(v)APP_VERSION="v"+v;}).catch(function(){});}catch(e){}
 }
@@ -1431,6 +1431,19 @@ function seed(){
 
 
 
+/* 就绪即释放输入；视觉收尾独立于初始化，没有最低展示时长。 */
+function dismissSplash(){
+  const el=document.getElementById("splashScreen");
+  if(!el||el.classList.contains("hide"))return;
+  let timer;
+  const done=()=>{clearTimeout(timer);el.removeEventListener("transitionend",onEnd);el.remove();};
+  const onEnd=e=>{if(e.target===el&&e.propertyName==="opacity")done();};
+  el.classList.add("hide");el.setAttribute("aria-hidden","true");
+  if(matchMedia("(prefers-reduced-motion: reduce)").matches)done();
+  else{el.addEventListener("transitionend",onEnd);timer=setTimeout(done,280);}
+  if(!localStorage.getItem("zhijian-license-accepted"))showLicenseModal(true);
+}
+
 function init(){
   buildToolbar();
   setTool("select");
@@ -1474,12 +1487,7 @@ function init(){
     console.error("init error:",e);
     try{renderSidePanel();render();}catch(_){}
   }).finally(function(){
-    /* 初始化完成即移除启动遮罩，不再额外等待 1.5s + 600ms。 */
-    var el=document.getElementById("splashScreen");
-    if(el){
-      el.remove();
-      if(!localStorage.getItem("zhijian-license-accepted"))showLicenseModal(true);
-    }
+    dismissSplash();
   });
   window.addEventListener("resize",resize);
   /* G3: 可配置自动保存间隔 */

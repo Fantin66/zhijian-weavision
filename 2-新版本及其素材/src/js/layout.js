@@ -736,7 +736,7 @@ function renderSelBar(sel){
   }
   if(sel.type==="note"){
     const source=document.createElement("button");
-    source.type="button";source.className="sbtn source-action";source.textContent="查看来源";
+    source.type="button";source.className="sbtn source-action";source.innerHTML=ICON.jump;source.setAttribute("aria-label","查看来源");
     source.addEventListener("pointerdown",e=>e.stopPropagation());
     source.addEventListener("click",e=>{e.stopPropagation();if(!source.disabled)openSourceRef(selectedItem());});
     selbar.appendChild(source);
@@ -801,7 +801,7 @@ function updateSelBar(){
   if(source){
     const ref=sel.sourceRef;
     source.disabled=!ref?.fileId||!state.files.some(f=>String(f.id)===String(ref.fileId));
-    source.title=!ref?"此便签没有来源":source.disabled?"来源附件已不存在":"打开附件并定位摘录原文";
+    source.title=!ref?"查看来源 · 此便签没有来源":source.disabled?"查看来源 · 来源附件已不存在":"查看来源 · 打开附件并定位摘录原文";
   }
   /* E5: links don't have itemBounds — use midpoint of connected items */
   var b;

@@ -704,7 +704,8 @@ body.immersive #immersiveExitBtn{display:flex;align-items:center;gap:7px}
 #previewLayer .pv-win .pv-body:not(:has(iframe)){padding:10px 12px}
 #previewLayer .pv-win .pv-body pre.pv-text,#previewLayer .pv-win .pv-body .pv-md-wrap{margin:6px}
 #previewLayer .pv-morph pre.pv-text,#previewLayer .pv-morph .pv-md-wrap{margin:8px 10px}
-#fullscreenView .fv-body pre.pv-text,#fullscreenView .fv-body .pv-md-wrap{margin:8px 10px}
+#fullscreenView .fv-body pre.pv-text,#fullscreenView .fv-body .pv-md-wrap{box-sizing:border-box;width:calc(100% - 32px);max-width:960px;margin:16px auto;text-align:left}
+@media(max-width:1000px){#fullscreenView .fv-body .pv-md-wrap,#fullscreenView .fv-body pre.pv-text{padding:24px}}
 .pv-html{display:block;border:none;width:100%;height:100%}
 .pv-stage{display:flex;position:relative;flex:1 1 0;width:100%;height:auto;min-height:0;box-sizing:border-box;overflow:hidden;align-items:flex-start;justify-content:flex-start;background:#fff}
 .pv-web-embed-fallback{height:100%;min-height:0;box-sizing:border-box;display:flex;align-items:center;justify-content:center;padding:28px;background:linear-gradient(145deg,#fff,#f6f8fc);color:var(--ink-dim);text-align:center}
@@ -2197,42 +2198,28 @@ body.reduced-motion #bg-l2-mica{
    G1 启动动画 — Logo 弹跳 → 名称/Slogan → 淡出进入应用
 ============================================================ */
 #splashScreen{
-  position:fixed;inset:0;z-index:99999;
-  display:flex;align-items:center;justify-content:center;
-  background:#f0f2f5;
-  backdrop-filter:blur(40px) saturate(120%);
-  -webkit-backdrop-filter:blur(40px) saturate(120%);
-  transition:opacity .5s ease;
+  position:fixed;inset:0;z-index:99999;display:flex;align-items:center;justify-content:center;
+  background:#f0f2f5;transition:opacity .22s ease;isolation:isolate;
 }
 [data-theme="dark"] #splashScreen{background:#111118;}
 #splashScreen.hide{opacity:0;pointer-events:none;}
-.splash-content{text-align:center;margin-bottom:10vh;}  /* G1: 上移 10% */
-.splash-logo{
-  width:187px;height:187px;object-fit:contain;  /* G1: 144×1.3=187 */
-  opacity:0;
-  animation:splashLogoBounce .8s .1s cubic-bezier(.28,1.4,.5,1) forwards;
-}
-.splash-name{
-  margin-top:24px;font-size:33px;font-weight:800;letter-spacing:.02em;  /* G1: ×1.5 */
-  color:#2d5fd3;
-  opacity:0;
-  animation:splashFadeIn .5s .35s ease forwards;  /* G1: 0.5s→0.35s 更早 */
-}
-[data-theme="dark"] .splash-name{color:#5b8aeb;}
-.splash-slogan{
-  margin-top:9px;font-size:18px;  /* G1: ×1.5 */
-  color:rgba(0,0,0,.4);
-  opacity:0;
-  animation:splashFadeIn .5s .5s ease forwards;  /* G1: 0.7s→0.5s 更早 */
-}
-[data-theme="dark"] .splash-slogan{color:rgba(255,255,255,.35);}
-@keyframes splashLogoBounce{
-  0%{opacity:0;transform:scale(.3);}
-  50%{opacity:1;transform:scale(1.15);}
-  100%{opacity:1;transform:scale(1);}
-}
-@keyframes splashFadeIn{
-  to{opacity:1;}
+.splash-content{text-align:center;margin-bottom:10vh;animation:splashArrive .42s cubic-bezier(.2,.7,.2,1) both;}
+.splash-mark{position:relative;width:220px;height:220px;margin:auto;}
+.splash-logo{position:relative;width:187px;height:187px;object-fit:contain;margin:16px;animation:splashBreathe 2.4s .42s ease-in-out infinite;}
+.splash-thread{position:absolute;width:12px;height:12px;border-radius:4px;animation:splashWeave 2.4s ease-in-out infinite;}
+.thread-blue{left:8px;top:140px;background:#1666ee;--dx:15px;--dy:-12px;}
+.thread-green{right:8px;top:106px;background:#26ab8a;--dx:-15px;--dy:8px;animation-delay:-.8s;}
+.thread-red{right:48px;top:8px;background:#f34540;--dx:-8px;--dy:16px;animation-delay:-1.6s;}
+.splash-name{margin-top:16px;font-size:33px;font-weight:800;letter-spacing:.02em;color:#2d5fd3;animation:splashArrive .42s .08s both;}
+[data-theme="dark"] .splash-name{color:#729ef4;}
+.splash-slogan{margin-top:9px;font-size:18px;color:#687385;animation:splashArrive .42s .14s both;}
+[data-theme="dark"] .splash-slogan{color:#a2adbe;}
+@keyframes splashArrive{from{opacity:0;transform:translateY(12px) scale(.97)}to{opacity:1;transform:translateY(0) scale(1)}}
+@keyframes splashBreathe{0%,100%{transform:translateY(0) scale(1)}50%{transform:translateY(-4px) scale(1.025)}}
+@keyframes splashWeave{0%,100%{opacity:.3;transform:translate(0,0) rotate(-12deg) scale(.8)}50%{opacity:.8;transform:translate(var(--dx),var(--dy)) rotate(12deg) scale(1)}}
+@media(prefers-reduced-motion:reduce){
+  #splashScreen,#splashScreen *{animation:none!important;transition:none!important;}
+  .splash-thread{display:none;}
 }
 /* G6: 跃迁确认弹窗 — 闪烁脉冲 */
 @keyframes jumpPulse{
@@ -2259,5 +2246,5 @@ body.reduced-motion #bg-l2-mica{
 [data-theme="dark"] #topbar #exportBtn,[data-theme="dark"] #topbar #importBtn{background:var(--surface)!important;color:var(--ink)!important;border:1px solid var(--card-border)!important;box-shadow:none!important}
 [data-theme="dark"] #topbar #exportBtn:hover,[data-theme="dark"] #topbar #importBtn:hover{background:var(--accent-soft)!important;color:var(--accent)!important}
 
-#selbar .sbtn.source-action{width:auto;padding:0 7px;font-size:12px;white-space:nowrap}
+#selbar .sbtn.source-action:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 #selbar .sbtn.source-action:disabled{opacity:.35;cursor:default;background:transparent}

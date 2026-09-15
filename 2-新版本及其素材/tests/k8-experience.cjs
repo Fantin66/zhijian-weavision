@@ -3,7 +3,7 @@ const {app,BrowserWindow,ipcMain}=require('electron');
 const fs=require('fs'),path=require('path'),os=require('os');
 const root=path.resolve(__dirname,'../..'),resources=process.argv[2];
 app.setPath('userData',fs.mkdtempSync(path.join(os.tmpdir(),'zhijian-k8-')));
-const out=path.join(root,'out/k8.3-validation');fs.mkdirSync(out,{recursive:true});
+const out=path.join(root,'out/k8.4-validation');fs.mkdirSync(out,{recursive:true});
 function pdfFixture(){
  const objects=['<< /Type /Catalog /Pages 2 0 R >>','<< /Type /Pages /Kids [3 0 R 4 0 R] /Count 2 >>',...Array.from({length:2},()=> '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 300 400] /Resources << >> >>')];
  let text='%PDF-1.4\n',offsets=[0];objects.forEach((v,i)=>{offsets.push(Buffer.byteLength(text));text+=(i+1)+' 0 obj\n'+v+'\nendobj\n';});
@@ -16,7 +16,7 @@ function docxFixture(){
 app.whenReady().then(async()=>{
  let win;const errors=[];
  try{
-  for(const [key,value] of Object.entries({'get-version':'0.10.3','get-system-theme':false,'get-open-file':null,'set-taskbar-icon':{ok:true},'set-fantin-icon':{ok:true},'quit-modal-ready':true}))ipcMain.handle(key,()=>value);
+  for(const [key,value] of Object.entries({'get-version':'0.10.4','get-system-theme':false,'get-open-file':null,'set-taskbar-icon':{ok:true},'set-fantin-icon':{ok:true},'quit-modal-ready':true}))ipcMain.handle(key,()=>value);
   win=new BrowserWindow({show:false,width:1440,height:900,webPreferences:{offscreen:true,preload:resources?path.join(resources,'app.asar/preload.js'):path.join(root,'2-新版本及其素材/desktop/electron/preload.js'),contextIsolation:true,nodeIntegration:false,backgroundThrottling:false}});
   win.webContents.on('console-message',(_e,level,message)=>{if(level>=3)errors.push(message);});
   await win.loadFile(resources?path.join(resources,'index.html'):path.join(root,'2-新版本及其素材/织见-思维关系板-K6.html'));
@@ -51,7 +51,7 @@ app.whenReady().then(async()=>{
    let excerpt=c.items.find(x=>x.type==='note'&&x.sourceRef);assert(excerpt&&excerpt.x===Math.round(point.x)&&excerpt.y===Math.round(point.y),'Excerpt created at drop coordinates');
    const ordinary=addNote(100,100,'ordinary');state.selected=ordinary.id;render();assert(selbar.querySelector('.source-action')?.disabled,'Ordinary note source disabled');state.selected=excerpt.id;render();
    assert(dockInner.textContent.includes('查看来源'),'Dock refreshes when switching selected notes');
-   assert(selbar.style.display==='flex'&&!selbar.querySelector('.source-action').disabled,'Floating source button enabled');
+   assert(selbar.style.display==='flex'&&!selbar.querySelector('.source-action').disabled,'Floating source button enabled');assert(selbar.querySelector('.source-action svg')&&selbar.querySelector('.source-action').getAttribute('aria-label')==='查看来源','Source icon has accessible label');
    selbar.querySelector('.source-action').click();await wait(400);assert(document.querySelector('#fullscreenView .k6-source-highlight'),'Visible source button navigates');closeFullscreen();await wait(400);
    c.items=c.items.filter(x=>x!==ordinary);
    const excerptId=excerpt.id;assert(excerpt.sourceRef.fileId===f.id,'Excerpt source attached');undo();assert(!state.items.some(x=>x.id===excerptId),'Undo excerpt');redo();excerpt=state.items.find(x=>x.id===excerptId);card=state.items.find(x=>x.id===card.id);assert(excerpt?.sourceRef.fileId===f.id,'Redo source');
