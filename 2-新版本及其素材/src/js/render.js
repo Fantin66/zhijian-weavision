@@ -34,6 +34,7 @@ function drawColorful(c,x,y,w,h,r,sel,dark,color){
 ============================================================ */
 function inViewport(b){const z=state.camera.zoom,m=80/z,vx=state.camera.x-m,vy=state.camera.y-m,vw=W/z+2*m,vh=H/z+2*m;return b.x<vx+vw&&b.x+b.w>vx&&b.y<vy+vh&&b.y+b.h>vy;}
 function render(){
+  const perfFrame=ZhijianPerf.beginFrame();
   syncHistoryBtns();
   ensureIdMap();
   if(W<=0||H<=0){W=board.clientWidth||1;H=board.clientHeight||1;}
@@ -56,6 +57,7 @@ function render(){
   }
   drawMindConnections(focusPrimary);
   drawLinks(focusPrimary);
+  ZhijianPerf.mark(perfFrame,"relations");
   const sel=selectedItem();
   const filterOk=()=>true;
   /* 聚焦模式：过渡期间非关联元素渐隐，完成后不画 */
@@ -275,6 +277,7 @@ function render(){
     }
   }
   ctx.restore();
+  ZhijianPerf.mark(perfFrame,"canvas");
   /* 连接点 hover tooltip — DOM 实现（K5-fix: canvas 绘制在 restore 后用世界坐标=位置漂移，
      字号 10/z 低缩放时巨大=大小不协调，canvas z-index 低于预览层=被遮挡） */
   var linkTip=document.getElementById("linkPtTip");
@@ -331,6 +334,8 @@ function render(){
       }
     }
   }
+  const visibleCount=ZhijianPerf.isEnabled()?state.items.reduce((n,it)=>{const b=itemBounds(it);return n+(b&&inViewport(b)?1:0);},0):0;
+  ZhijianPerf.endFrame(perfFrame,{items:state.items.length,links:state.links.length,visible:visibleCount});
   /* H1 任务3: 跃迁闪烁由 CSS .jump-confirm 动画完成，不再触发低频全量重绘定时器 */
 }
 /* 形变覆盖层跟随文件卡片：位置/尺寸按相机变换实时同步；
