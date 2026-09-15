@@ -34,6 +34,11 @@ test('moving last canvas copies dependencies, preserves jumps and leaves valid a
  vm.runInContext(`state.projects=projects;state.activeProjectId='source';state.activeCanvasId='only';moveCanvasToProject('only','target');globalThis.active={project:state.activeProjectId,canvas:curCanvas().id};`,ctx);
  assert.equal(ctx.active.project,'target');assert.equal(ctx.active.canvas,'only');assert.equal(ctx.projects[0].canvases.length,1);assert.equal(ctx.projects[1].files[0].id,'f');
 });
+test('canvas move keeps existing attachment locations and excludes unrelated folder contents',()=>{
+ const ctx=stateSandbox();ctx.projects=[{id:'source',files:[{id:'used',folderId:'uploaded'},{id:'unrelated',folderId:'uploaded'}],canvases:[board('only',[{id:1,fileId:'used'}])]},{id:'target',folders:[{id:'keep',name:'已有资料'}],files:[{id:'used',folderId:'keep'}],canvases:[board('t')]}];
+ vm.runInContext(`state.projects=projects;state.activeProjectId='source';state.activeCanvasId='only';moveCanvasToProject('only','target');`,ctx);
+ assert.equal(ctx.projects[1].files.length,1);assert.equal(ctx.projects[1].files[0].folderId,'keep');assert.equal(ctx.projects[1].folders.length,1);assert.equal(ctx.projects[0].files.length,2);
+});
 function worker(job){return new Promise((resolve,reject)=>{const w=new Worker(path.join(__dirname,'../desktop/electron/package-worker.js'),{workerData:job});w.on('message',m=>{if(m.committing)w.postMessage({commit:true});if(m.result)resolve(m.result);});w.on('error',reject);});}
 test('worker writes and reads distinct same-name originals and rejects collisions',async()=>{
  const root=fs.mkdtempSync(path.join(os.tmpdir(),'zhijian-k6-test-'));try{

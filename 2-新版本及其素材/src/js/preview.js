@@ -425,6 +425,9 @@ function ensureMorphDom(it){
   const tools=document.createElement("div");tools.className="pv-morph-tools";
   tools.innerHTML='<span class="pv-morph-name"></span><button class="pv-morph-zo" title="缩小预览">−</button><button class="pv-morph-zoom" title="恢复 100%">100%</button><button class="pv-morph-zi" title="放大预览">+</button><button class="pv-morph-fullscreen" title="全屏预览">⤢</button><button class="pv-morph-open" title="使用电脑默认应用打开">默认打开</button><button class="pv-morph-close" title="收起预览" aria-label="收起预览">⌃</button>';
   tools.querySelector(".pv-morph-name").textContent=f.name;
+  if(f.kind==="text"||f.kind==="doc"){
+    const hint=document.createElement("span");hint.className="pv-selection-hint";hint.textContent="选中文字后 Ctrl+C 复制";hint.title="可粘贴到便签、节点详情或其他应用。选中不会修改附件，也不会自动生成引用。";tools.querySelector(".pv-morph-name").after(hint);
+  }
   const body=document.createElement("div");body.className="pv-morph-content";
   const applyZoom=value=>{
     const zoom=clamp(value,.35,3);
@@ -1290,14 +1293,16 @@ async function renderDocx(b,bodyEl,fileName="document.docx"){
   return renderDocxDirect(b,bodyEl,fileName);
 }
 async function renderDocxDirect(b,bodyEl,fileName="document.docx"){
+  bodyEl.innerHTML='<div class="pv-loading"><div class="spinner"></div>正在解析 Word 文档…</div>';
   const ok=await ensureCdn("doc");
   if(!ok){docxFallbackMessage(b,bodyEl,fileName,new Error("浏览器 Word 解析组件未加载"));return;}
   bodyEl.innerHTML='<div class="pv-loading"><div class="spinner"></div>正在解析 Word 文档…</div>';
   try{
-    bodyEl.innerHTML='';
+    const loading=bodyEl.firstElementChild;
     /* 浏览器直接解析 DOCX；卡片预览另设舞台以保留纸张感，并在解析完成后按页宽适配。 */
-    const stage=document.createElement("div");stage.className="pv-docx-stage";bodyEl.appendChild(stage);
+    const stage=document.createElement("div");stage.className="pv-docx-stage";stage.style.visibility="hidden";bodyEl.appendChild(stage);
     await window.docx.renderAsync(b,stage,null,{className:"docx-container",inWrapper:true,ignoreWidth:false,ignoreHeight:false,breakPages:true});
+    loading?.remove();stage.style.visibility="";
     if(bodyEl.closest("#previewLayer"))requestAnimationFrame(()=>fitDocxPreview(bodyEl));
   }catch(e){
     console.warn("browser docx preview failed",e);
@@ -1305,6 +1310,7 @@ async function renderDocxDirect(b,bodyEl,fileName="document.docx"){
   }
 }
 async function renderPdf(b,bodyEl,opt={}){
+  bodyEl.innerHTML='<div class="pv-loading"><div class="spinner"></div>加载 PDF…</div>';
   const ok=await ensureCdn("pdf");
   if(!ok){bodyEl.innerHTML='<div class="pv-msg"><span class="big">⚠️</span>加载 PDF 预览组件失败<br>请检查网络连接或放入 assets/vendor/pdf.min.js<br><a download>下载文件本地打开</a></div>';return;}
   bodyEl.innerHTML='<div class="pv-loading"><div class="spinner"></div>加载 PDF…</div>';
@@ -1324,7 +1330,7 @@ async function renderPdf(b,bodyEl,opt={}){
     const ctx2=canvas.getContext("2d");
     await page.render({canvasContext:ctx2,viewport,transform:[pixelRatio,0,0,pixelRatio,0,0]}).promise;
     };
-    if(opt.paginate&&pdf.numPages>1){
+    if(opt.paginate!==false&&pdf.numPages>1){
       const canvas=document.createElement("canvas");
       const ratio=clamp(Number(opt.previewScale)||1,.65,1);
       canvas.style.cssText="display:block;margin:0 auto 8px;box-shadow:0 2px 12px rgba(0,0,0,.12);background:#fff"+(opt.fitToWidth?";max-width:"+Math.round(ratio*100)+"%;height:auto":"");
@@ -1338,7 +1344,8 @@ async function renderPdf(b,bodyEl,opt={}){
         current=clamp(pageNo,1,pdf.numPages);const token=++paintToken;
         counter.textContent="第 "+current+" / "+pdf.numPages+" 页";prev.disabled=current===1;next.disabled=current===pdf.numPages;
         prev.style.opacity=prev.disabled?".35":"1";next.style.opacity=next.disabled?".35":"1";
-        try{await paint(current,canvas);if(token!==paintToken)return;}catch(e){console.warn("pdf page render failed",e);}
+        const nextCanvas=document.createElement("canvas");nextCanvas.style.cssText=canvas.style.cssText;
+        try{await paint(current,nextCanvas);if(token!==paintToken)return;canvas.width=nextCanvas.width;canvas.height=nextCanvas.height;canvas.style.width=nextCanvas.style.width;canvas.style.height=nextCanvas.style.height;canvas.getContext("2d").drawImage(nextCanvas,0,0);}catch(e){if(token===paintToken)counter.textContent="此页加载失败，点击翻页重试";console.warn("pdf page render failed",e);}
       };
       prev.addEventListener("click",()=>show(current-1));next.addEventListener("click",()=>show(current+1));
       await show(opt.initialPage||1);

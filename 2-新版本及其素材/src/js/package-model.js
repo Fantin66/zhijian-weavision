@@ -12,7 +12,7 @@
     const selected=new Set(canvases.map(c=>c.id));
     const copies=clone(canvases);
     for(const c of copies)for(const i of c.items||[]){const j=typeof i.jumpTo==="string"?{canvasId:i.jumpTo}:i.jumpTo;if(j&&(!selected.has(j.canvasId)||(j.projectId&&j.projectId!==project.id)))i.jumpTo=null;}
-    return {schemaVersion:2,version:"K6",type:canvasId?"canvas":"project",exportedAt:Date.now(),projectName:project.name,
+    return {schemaVersion:2,version:"K8",type:canvasId?"canvas":"project",exportedAt:Date.now(),projectName:project.name,
       folders:clone(project.folders||[]),canvases:copies,fileMeta:files.map((f,index)=>({oldId:f.id,name:f.name,packageName:"asset-"+index+"-"+String(f.id).replace(/[^a-zA-Z0-9_-]/g,"_")+(/\.[a-zA-Z0-9]{1,12}$/.exec(f.name)||[""])[0],kind:f.kind,mime:f.mime,url:f.url||null,folderId:f.folderId||null,created:f.created}))};
   }
   function decode(structure,attachments,next){

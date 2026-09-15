@@ -302,18 +302,19 @@ function render(){
     updateSelBar();updateFocusHud();renderDock();
   }
   updateStatusBar();drawStatusHUD();
-  /* J2-fix: 缩放/平移时跳过 DOM 同步 + 隐藏覆盖层——预览内容用 canvas 占位替代，
-     停止后 200ms 自动恢复。避免 syncDetailReadDom 的 scrollWidth/Height 重排和
-     syncMorphDom/syncPvDom 的逐元素样式写入拖慢缩放帧率 */
-  if(state._camInteracting){
-    if(previewLayer)previewLayer.style.visibility="hidden";
-    if(typeof detailReadLayer!=="undefined"&&detailReadLayer)detailReadLayer.style.visibility="hidden";
+  /* K8：相机移动时按上次同步坐标整体变换已有读层，保留内容，避免逐项重排。 */
+  if(state._camInteracting&&_previewCamera){
+    const z=state.camera.zoom/_previewCamera.zoom;
+    const transform="translate("+((_previewCamera.x-state.camera.x)*state.camera.zoom)+"px,"+((_previewCamera.y-state.camera.y)*state.camera.zoom)+"px) scale("+z+")";
+    for(const layer of [previewLayer,typeof detailReadLayer!=="undefined"?detailReadLayer:null])if(layer){layer.style.overflow="visible";layer.style.transformOrigin="0 0";layer.style.transform=transform;}
   }else{
+    for(const layer of [previewLayer,typeof detailReadLayer!=="undefined"?detailReadLayer:null])if(layer){layer.style.transform="";layer.style.overflow="";}
     if(previewLayer)previewLayer.style.visibility="";
     if(typeof detailReadLayer!=="undefined"&&detailReadLayer)detailReadLayer.style.visibility="";
     syncMorphDom();
     if(typeof syncDetailReadDom==="function")syncDetailReadDom();
     syncPvDom();
+    _previewCamera={...state.camera};
   }
   /* 连接待选态清理：待选元素被删/不存在时退出待选 */
   if(linkPendingId!==null&&!state.items.some(i=>i.id===linkPendingId))linkPendingId=null;
@@ -387,6 +388,7 @@ function syncPvContentZoom(el,pv,z){
 /* ============================================================
    左热区/Dock 相关同步（保留原 syncMorphDom）
 ============================================================ */
+let _previewCamera=null;
 function syncMorphDom(){
   /* 防御：扫描 previewLayer 中的孤儿 .pv-morph 元素（不在 morphMap 中的残留覆盖层），
      避免残留 DOM 拦截画布指针事件导致附件拖不动 */
@@ -403,6 +405,7 @@ function syncMorphDom(){
   /* 多实例：遍历每个已展开卡片的覆盖层，跟随卡片位置/缩放；
      仍在预览态之外的覆盖层销毁（收起/删除时清理） */
   const morphSC=styleCfg();
+  const cards=new Map(state.items.filter(i=>i.type==="fileCard").map(i=>[String(i.id),i]));
   for(const [cardId,m] of [...morphMap]){
     const el=m.el;
     /* 防御：若节点已被其他逻辑移出 DOM，重新挂载 */
@@ -410,7 +413,7 @@ function syncMorphDom(){
       const layer=document.getElementById("previewLayer");
       if(layer)layer.appendChild(el);else{destroyMorphDom(cardId);continue;}
     }
-    const card=state.items.find(i=>i.type==="fileCard"&&String(i.id)===cardId);
+    const card=cards.get(cardId);
     if(!card||!card.previewOpen){
       destroyMorphDom(cardId);
       continue;
@@ -461,7 +464,7 @@ function syncMorphDom(){
             if(Math.abs((it.w||0)-it._morphW)>20||Math.abs((it.h||0)-it._morphH)>20){it.w=it._morphW;it.h=it._morphH;}
           }
           /* 委托 ensureMorphDom 完整创建：工具栏+拖拽+缩放+加载文件内容 */
-          if(typeof ensureMorphDom==="function")ensureMorphDom(it);
+          if(typeof ensureMorphDom==="function"){ensureMorphDom(it);requestRender();break;}
         }
       }
     }
@@ -1181,11 +1184,13 @@ function renderWebEmbedFallback(container,url,name){
 }
 function renderPreviewImage(container,url,opts){
   const o=opts||{};
-  container.innerHTML="";
+  container.innerHTML='<div class="pv-loading"><div class="spinner"></div>加载图片…</div>';
+  const loading=container.firstElementChild;
   const wrap=document.createElement("div");
   wrap.className=o.wrapClass||"morph-fit";
   if(o.wrapStyle)wrap.style.cssText=o.wrapStyle;
   const img=document.createElement("img");
+  img.onload=()=>{loading.remove();};
   img.src=url;img.referrerPolicy="no-referrer-when-downgrade";img.alt=o.alt||"图片材料";
   img.style.cssText=o.style||"max-width:100%;max-height:100%;object-fit:contain;display:block;margin:auto";
   img.onerror=()=>{container.innerHTML='<div class="pv-msg"><span class="big">⚠️</span>图片加载失败</div>';};
@@ -2306,18 +2311,22 @@ function getRelated(id){
 }
 /* I5-fix: getSecondary（二级关联，恒返回空集且无消费方）已随 focusSecondary 一并删除 */
 /* camera 平滑动画 */
+let _cameraAnimation=0;
 function animateCamera(tx,ty,tz){
+  const generation=++_cameraAnimation;
+  if(typeof _camTimer!=="undefined")clearTimeout(_camTimer);
   const sx=state.camera.x,sy=state.camera.y,sz=state.camera.zoom;
-  const start=performance.now();const dur=200;
+  const start=performance.now();const dur=state.reducedMotion?0:200;
   state._camInteracting=true;
   function step(){
-    const t=Math.min(1,(performance.now()-start)/dur);
+    if(generation!==_cameraAnimation)return;
+    const t=dur?Math.min(1,(performance.now()-start)/dur):1;
     const e=t<1?1-Math.pow(1-t,2.5):1; /* easeOutQuint-ish: fast start, smooth settle */
     state.camera.x=sx+(tx-sx)*e;
     state.camera.y=sy+(ty-sy)*e;
     state.camera.zoom=sz+(tz-sz)*e;
     if(t<1){requestRender();requestAnimationFrame(step);}
-    else{state._camInteracting=false;render();} /* 动画结束——直接全量渲染，预览即时出现 */
+    else{state._camInteracting=false;if(zoomPctEl)zoomPctEl.textContent=Math.round(tz*100)+"%";requestRender();}
   }
   step();
 }

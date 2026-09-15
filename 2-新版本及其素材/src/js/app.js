@@ -3,11 +3,12 @@
    IndexedDB / 持久化
 ============================================================ */
 const DB_NAME="boardlib",DB_VER=2;
-let idb=null,_idleSaveTimer=0;
+let idb=null,_idleSaveTimer=0,_idleSaveStarted=0;
 /* K7：周期保存不抢占拖动或相机手势；结束后自动补写。 */
 function saveWhenIdle(){
   if(_idleSaveTimer)return;
-  _idleSaveTimer=setTimeout(()=>{_idleSaveTimer=0;saveState();},260);
+  if(!_idleSaveStarted)_idleSaveStarted=Date.now();
+  _idleSaveTimer=setTimeout(()=>{_idleSaveTimer=0;if((drag||state._camInteracting)&&Date.now()-_idleSaveStarted<5000)saveWhenIdle();else saveState();},260);
 }
 function openDB(){
   return new Promise((res,rej)=>{
@@ -23,7 +24,7 @@ function openDB(){
   });
 }
 function saveState(){
-  if(drag||state._camInteracting){saveWhenIdle();return true;}
+  clearTimeout(_idleSaveTimer);_idleSaveTimer=0;_idleSaveStarted=0;
   try{
     const data={
       projects:state.projects.map(p=>({
@@ -52,7 +53,7 @@ function saveState(){
    关键路径（beforeunload）走立即存档绕过防抖，确保最终状态落盘。 */
 /* I5-fix: debounce 的 flush/cancel 扩展零调用方且 flush 的 this 取向有误，删除 */
 function debounce(fn,wait){let t=null;const d=function(){const ctx=this,args=arguments;if(t)clearTimeout(t);t=setTimeout(()=>fn.apply(ctx,args),wait);};return d;}
-const _saveStateDebounced=debounce(saveState,1500);
+const _saveStateDebounced=debounce(saveWhenIdle,1500);
 function saveStateDebounced(){updateSaveStatus("saving");_saveStateDebounced();}
 /* G3: 可配置自动保存间隔——I5-fix 提为顶层函数，init 与设置面板（数据）共用；
    原先是 init() 内的局部函数，设置面板调用时直接 ReferenceError */
@@ -60,11 +61,11 @@ var _saveTimer=null;
 function setupAutoSave(){
   if(_saveTimer){clearInterval(_saveTimer);_saveTimer=null;}
   var sec=state.saveInterval;
-  if(sec>0){_saveTimer=setInterval(saveState,sec*1000);}
+  if(sec>0){_saveTimer=setInterval(saveWhenIdle,sec*1000);}
 }
 /* I5: 统一版本标签——网页与桌面共用一个来源（桌面端异步取 package.json 版本号，
    修复关于页把 Promise 拼进字符串显示"v[object Promise]"、网页端回退旧标签"G3"的问题） */
-let APP_VERSION="K7";
+let APP_VERSION="K8";
 if(window.electronAPI&&window.electronAPI.getVersion){
   try{window.electronAPI.getVersion().then(function(v){if(v)APP_VERSION="v"+v;}).catch(function(){});}catch(e){}
 }
@@ -1651,7 +1652,7 @@ function renderSettingsContent(catId,content){
       '<div style="font-size:11px;color:var(--ink-faint);margin-top:4px">使用浏览器/桌面应用的全屏模式（独立于沉浸）</div></div>'+
       '<div style="margin-bottom:20px"><div style="font-size:12px;color:var(--ink-dim);margin-bottom:6px">启动行为</div>'+
       '<div style="font-size:12px;color:var(--ink)">当前：自动加载上次项目</div>'+
-      '<div style="font-size:11px;color:var(--ink-faint);margin-top:4px">未来可选：打开上次项目 / 打开新建项目 / 打开教程</div></div>';
+      '<div style="font-size:11px;color:var(--ink-faint);margin-top:4px">启动后可在左侧切换项目，或点击项目旁的 + 新建项目。</div></div>';
     var im=content.querySelector("#setImmersive");if(im)im.onclick=function(){toggleImmersive();};
     var fsw=content.querySelector("#setFullscreen");
     if(fsw)fsw.onclick=function(){
@@ -1715,15 +1716,13 @@ function renderSettingsContent(catId,content){
       '<div style="font-size:12px;color:var(--ink-dim)">背景流光</div>'+
       '<div id="bgFlowSwitch" style="width:44px;height:24px;border-radius:12px;background:'+(state.reducedMotion?"var(--card-border)":"var(--accent)")+';position:relative;cursor:pointer;transition:background .2s ease;flex:none">'+
       '<div style="position:absolute;top:2px;left:'+(state.reducedMotion?"2px":"22px")+';width:20px;height:20px;border-radius:50%;background:#fff;box-shadow:0 1px 3px rgba(0,0,0,.3);transition:left .2s ease"></div></div></div>'+
-      '<div style="font-size:11px;color:var(--ink-faint)">开启后背景有缓慢漂浮的色块（其他动画不受影响）</div></div>'+
+      '<div style="font-size:11px;color:var(--ink-faint)">关闭后停止背景漂浮，纵览也直接定位，减少动态效果。</div></div>'+
       '<div style="margin-bottom:20px"><div style="font-size:12px;color:var(--ink-dim);margin-bottom:8px">Fantin 文件图标</div>'+
       '<div style="display:flex;gap:12px">'+
       [1,2,3].map(function(n){var on=(state.fantinIcon||2)===n;return '<div class="fantinIconBtn" data-n="'+n+'" style="flex:1;cursor:pointer;padding:12px;border:2px solid '+(on?"var(--accent)":"var(--card-border)")+';border-radius:12px;text-align:center;transition:all .15s ease"><img src="src/assets/icons/fantin-'+n+'.ico" style="width:48px;height:48px;object-fit:contain;margin-bottom:8px"><div style="font-size:11px;font-weight:600;color:'+(on?"var(--accent)":"var(--ink-dim)")+'">第'+n+'张</div></div>';}).join("")+
       '</div><div style="font-size:11px;color:var(--ink-faint);margin-top:6px">点击即实时生效（写注册表 + 刷新缓存，无需重装）</div></div>'+
-      '<div style="margin-bottom:20px"><div style="font-size:12px;color:var(--ink-dim);margin-bottom:8px">默认样式（新建项目时）</div>'+
-      '<div style="font-size:12px;color:var(--ink-faint)">未来可选：默认使用哪种视觉样式</div></div>'+
-      '<div style="margin-bottom:20px"><div style="font-size:12px;color:var(--ink-dim);margin-bottom:8px">默认字体（新建项目时）</div>'+
-      '<div style="font-size:12px;color:var(--ink-faint)">未来可选：默认使用哪种画布字体</div></div>';
+      '<div style="margin-bottom:20px"><div style="font-size:12px;color:var(--ink-dim);margin-bottom:8px">样式与字体</div>'+
+      '<div style="font-size:12px;color:var(--ink-faint)">关闭设置后，可在顶部「样式」和「字体」菜单中调整。</div></div>';
     var choices=content.querySelector("#logoChoices");
     for(var n=1;n<=3;n++)(function(num){
       var preset=LOGO_PRESETS[num];var isDark=document.documentElement.getAttribute("data-theme")==="dark";

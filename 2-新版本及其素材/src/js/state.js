@@ -239,7 +239,15 @@ function moveCanvasToProject(canvasId,targetProjectId){
   for(const p of c.previews||[])if(p.fileId)needed.add(p.fileId);
   for(const l of c.links||[])if(l.sourceRef?.fileId)needed.add(l.sourceRef.fileId);
   for(const id of needed)if(!source.files.some(f=>f.id===id)){toast("移动失败：附件记录缺失，请先检查关系");return;}
-  for(const id of needed){const f=source.files.find(f=>f.id===id);if(!target.files.some(f=>f.id===id))target.files.push({...f,folderId:null,thumb:null,_url:null});}
+  const additions=[...needed].filter(id=>!target.files.some(f=>f.id===id));
+  let folder=null;
+  if(additions.length){
+    target.folders=target.folders||[];
+    const base=c.name||"画布附件";let name=base,n=2;
+    while(target.folders.some(f=>!f.parentId&&f.name===name))name=base+"（"+(n++)+"）";
+    folder={id:"fld"+(uid++),name,parentId:null,collapsed:false};target.folders.push(folder);
+    for(const id of additions){const f=source.files.find(f=>f.id===id);target.files.push({...f,folderId:folder.id,thumb:null,_url:null});}
+  }
   for(const p of state.projects)for(const board of p.canvases)for(const i of board.items||[]){
     if(!i.jumpTo)continue;const j=typeof i.jumpTo==="string"?{canvasId:i.jumpTo}:i.jumpTo;
     if(j.canvasId===c.id)i.jumpTo={...j,projectId:target.id};else if(board===c)i.jumpTo={...j,projectId:j.projectId||source.id};
@@ -248,6 +256,8 @@ function moveCanvasToProject(canvasId,targetProjectId){
   if(!source.canvases.length)source.canvases.push({id:"c"+(uid++),name:"主画布",items:[],links:[],previews:[],camera:{x:0,y:0,zoom:1}});
   saveCurrentCanvas();state.activeProjectId=target.id;state.activeCanvasId=c.id;resetTransientState();
   renderSidePanel();render();saveStateDebounced();syncPvDom();restoreFiles();
+  const reused=needed.size-additions.length;
+  toast("画布已移动"+(folder?"；新增附件放入「"+folder.name+"」":"")+(reused?"；"+reused+" 个已有附件沿用原位置":"")+"。原项目文件保留");
 }
 function renameFile(id,name){
   const f=state.files.find(x=>x.id===id);
@@ -263,7 +273,7 @@ let editingNoteId=null,editingMindId=null,editingNoteDraftStyle=null;
 let undoStack=[],redoStack=[];
 const canvasHistories=new Map();
 function activateHistory(){const c=curCanvas();if(!c){undoStack=[];redoStack=[];return;}let h=canvasHistories.get(c.id);if(!h){h={undo:[],redo:[]};canvasHistories.set(c.id,h);}undoStack=h.undo;redoStack=h.redo;}
-function resetTransientState(){state.selected=null;state.multiSel=[];state.hover=null;state.focusMode=null;state.search=null;}
+function resetTransientState(){if(typeof _cameraAnimation!=="undefined")++_cameraAnimation;state._camInteracting=false;state.selected=null;state.multiSel=[];state.hover=null;state.focusMode=null;state.search=null;}
 
 const MAX_HISTORY=60;
 const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
@@ -380,7 +390,6 @@ function fitAll(){
   const tx=b.x-(W/z-b.w)/2;
   const ty=b.y-(H/z-b.h)/2;
   animateCamera(tx,ty,z);
-  setTimeout(function(){zoomPctEl.textContent=Math.round(z*100)+"%";},300);
 }
 function boundsOfItems(){
   let b=null;

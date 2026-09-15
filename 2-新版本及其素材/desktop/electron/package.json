@@ -1,7 +1,7 @@
 {
   "name": "zhijian-weavision",
-  "version": "0.9.0",
-  "description": "织见 · 思维关系板 — Desktop App (K7)",
+  "version": "0.10.0",
+  "description": "织见 · 思维关系板 — Desktop App (K8)",
   "main": "main.js",
   "scripts": {
     "start": "electron .",
@@ -50,7 +50,7 @@
       }
     ],
     "directories": {
-      "output": "../../发行版/K7"
+      "output": "../../发行版/K8"
     },
     "fileAssociations": [
       {

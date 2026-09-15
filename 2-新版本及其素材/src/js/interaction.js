@@ -76,6 +76,7 @@ board.addEventListener("wheel",e=>{
   const t=e.target;
   if(t&&t.closest&&t.closest(".pv-morph-content,.pv-body,#dockSub,#noteEditor,#notePreview,#detailPanel,#menuDrop,#fullscreenView,#dockBar .dock-inner,#searchResults")) return;
   e.preventDefault();
+  ++_cameraAnimation;
   state._camInteracting=true;clearTimeout(_camTimer);
   _camTimer=setTimeout(function(){state._camInteracting=false;requestRender();},80);
   const bxy=boardXY(e.clientX,e.clientY);
@@ -144,6 +145,7 @@ function beginMoveDrag(hit,wpt,pointer,marqueeSelect){
   canvas.setPointerCapture(pointer);
 }
 function onPointerDown(e){
+  ++_cameraAnimation;clearTimeout(_camTimer);state._camInteracting=false;
   /* 防御：如果上一次交互的 drag 未正常结束（如指针在窗口外释放），
      清除残留状态，避免后续交互失效 */
   if(drag&&!e.buttons){drag=null;board.classList.remove("panning");}
