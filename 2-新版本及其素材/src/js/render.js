@@ -56,6 +56,7 @@ function render(){
     focusId=state.focusMode.id;
     focusPrimary=getRelated(focusId);
   }
+  ZhijianPerf.mark(perfFrame,"prepare");
   drawMindConnections(focusPrimary);
   drawLinks(focusPrimary);
   ZhijianPerf.mark(perfFrame,"relations");
@@ -464,7 +465,7 @@ function syncMorphDom(){
   /* G6 fix: previewOpen=true 但不在 morphMap 里的 fileCard，通过 ensureMorphDom 完整创建 */
   if(layer){
     for(const it of (state.items||[])){
-      if(it.type==="fileCard"&&it.previewOpen&&it.fileId){
+      if(it.type==="fileCard"&&it.previewOpen&&it.fileId&&inViewport(itemBounds(it))){
         const cid=String(it.id);
         if(!morphMap.has(cid)){
           /* 修复：previewOpen=true 但尺寸仍是卡片尺寸的情况（教程预设/AI build/update_item）。
@@ -1127,7 +1128,13 @@ function roundRectPath(c,x,y,w,h,r){
   c.moveTo(x+rr,y);c.arcTo(x+w,y,x+w,y+h,rr);c.arcTo(x+w,y+h,x,y+h,rr);c.arcTo(x,y+h,x,y,rr);c.arcTo(x,y,x+w,y,rr);
   c.closePath();
 }
+const wrappedTextCache=new Map();let wrappedTextChars=0;
+document.fonts?.addEventListener("loadingdone",()=>{wrappedTextCache.clear();wrappedTextChars=0;requestRender();});
 function wrapLines(c,text,maxW){
+  text=String(text);
+  const key=JSON.stringify([c.font,c.fontKerning,c.letterSpacing,c.wordSpacing,c.direction,maxW,text]);
+  const hit=wrappedTextCache.get(key);
+  if(hit){wrappedTextCache.delete(key);wrappedTextCache.set(key,hit);return hit.slice();}
   const lines=[];
   for(const para of String(text).split("\n")){
     let line="";
@@ -1138,7 +1145,14 @@ function wrapLines(c,text,maxW){
     }
     if(line) lines.push(line);
   }
-  return lines.length?lines:[""];
+  const result=lines.length?lines:[""];
+  if(text.length<=10000){
+    while(wrappedTextCache.size&&(wrappedTextCache.size>=3000||wrappedTextChars+key.length>1000000)){
+      const oldest=wrappedTextCache.keys().next().value;wrappedTextChars-=oldest.length;wrappedTextCache.delete(oldest);
+    }
+    wrappedTextCache.set(key,result);wrappedTextChars+=key.length;
+  }
+  return result.slice();
 }
 function truncateStr(s,maxW){
   if(!s) return "";
@@ -1235,14 +1249,8 @@ function noteTypography(it){
 function formatSize(n){if(!n)return"";if(n<1024)return n+" B";if(n<1048576)return(n/1024).toFixed(1)+" KB";return(n/1048576).toFixed(1)+" MB";}
 
 /* ---------- 便签 ---------- */
-function drawNote(it,cc){
-  const c=cc||ctx;const{x,y,w,h}=it;
-  const coreH=detailBaseHeight(it,{x,y,w,h});
-  const z=state.camera.zoom;
-  const sel=it.id===state.selected;
-  const SC=styleCfg();
-  /* 便签圆角跟随当前风格：paper=方角(2) / minimal=微圆(4) / 其余 7 */
-  const nr=SC.paper?8:SC.glass?14:SC.minimal?4:SC.neumorph?14:SC.colorful?16:SC.bento?20:SC.editorial?4:9;
+function paintNoteSurface(c,it,coreH,z,sel,SC,nr){
+  const {x,y,w,h}=it;
   if(SC.neumorph){drawNeumorph(c,x,y,w,h,nr,sel,state.dark,state.bgColor);}else if(SC.colorful){drawColorful(c,x,y,w,h,nr,sel,state.dark,it.color);}else if(SC.bento){drawColorful(c,x,y,w,h,nr,sel,state.dark,it.color);}else if(SC.editorial){drawColorful(c,x,y,w,h,nr,sel,state.dark,it.color);}else{
   /* 立体感：外层柔和投影（纸感悬浮）+ 内层接触阴影 */
   c.save();
@@ -1283,6 +1291,16 @@ function drawNote(it,cc){
     c.fillStyle=shine;c.fillRect(x,y,w,h);c.restore();
   }
   } /* end else */
+}
+function drawNote(it,cc){
+  const c=cc||ctx;const{x,y,w,h}=it;
+  const coreH=detailBaseHeight(it,{x,y,w,h});
+  const z=state.camera.zoom;
+  const sel=it.id===state.selected;
+  const SC=styleCfg();
+  /* 便签圆角跟随当前风格：paper=方角(2) / minimal=微圆(4) / 其余 7 */
+  const nr=SC.paper?8:SC.glass?14:SC.minimal?4:SC.neumorph?14:SC.colorful?16:SC.bento?20:SC.editorial?4:9;
+  paintNoteSurface(c,it,coreH,z,sel,SC,nr);
   /* 选中态描边 */
   if(sel){
     c.save();
@@ -2074,7 +2092,13 @@ function drawFileCard(it,cc){
     /* 内容区 */
     c.save();
     roundRectPath(c,b.x,cy,b.w,ch,0,0,10,10);c.clip();
-    if(it.previewOpen){
+    /* DOM owns live preview content. Canvas only renders it for image export. */
+    if(!state._exporting&&!hasMorph){
+      c.fillStyle=dc("#f5f6f8","#22222a");c.fillRect(b.x,cy,b.w,ch);
+      c.fillStyle=dc("#6e7080","#98989d");c.font="12px "+FONT;c.textAlign="center";c.textBaseline="middle";
+      c.fillText("正在准备预览…",b.x+b.w/2,cy+ch/2);
+    }
+    if(it.previewOpen&&state._exporting){
       if(state._cameraInteracting){c.fillStyle=dc("rgba(240,242,245,.95)","rgba(28,28,32,.95)");c.fillRect(b.x,cy,b.w,ch);c.fillStyle=dc("#9a9a9e","#7a7a7e");c.font="12px "+SANS_STACK;c.textAlign="center";c.textBaseline="middle";var _fn=f?f.name:"";c.fillText(_fn.length>22?_fn.slice(0,20)+"…":_fn,b.x+b.w/2,cy+ch/2);}else{
       const pv=getPreviewContent(it.fileId);
       const isMd=f&&/\.(md|markdown)$/i.test(f.name);
@@ -2083,7 +2107,7 @@ function drawFileCard(it,cc){
       if(isMd){
         /* Markdown：DOM 覆盖层完整渲染（标题/表格/列表/代码/下划线） */
         if(!hasMorph){c.fillStyle=dc("rgba(255,255,255,.94)","rgba(30,30,34,.94)");c.fillRect(b.x,cy,b.w,ch);}
-        if(!state._exporting)ensureMorphDom(it);
+        /* Live creation is handled by the visible preview queue. */
       }else if(pv&&pv.kind==="img"&&pv.img){
         if(pv.img){c.drawImage(pv.img,b.x,cy,b.w,ch);}else{c.fillStyle=dc("#f5f6f8","#22222a");c.fillRect(b.x,cy,b.w,ch);}
       }else if(pv&&pv.text){
@@ -2126,7 +2150,7 @@ function drawFileCard(it,cc){
           c.fillText(truncateStr(f.name,b.w-28),b.x+b.w/2,cy+ch/2+12);
           c.textAlign="start";c.textBaseline="alphabetic";
         }
-        if(!state._exporting)ensureMorphDom(it);
+        /* Live creation is handled by the visible preview queue. */
       }else{
         /* 其他二进制：信息卡 + 下载降级提示 */
         c.fillStyle=dc("#f5f6f8","#22222a");c.fillRect(b.x,cy,b.w,ch);

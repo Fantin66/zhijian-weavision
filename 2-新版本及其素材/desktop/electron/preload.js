@@ -3,6 +3,7 @@ const { contextBridge, ipcRenderer } = require("electron");
 /* 暴露桌面 API 给页面——页面通过 window.electronAPI 访问 */
 contextBridge.exposeInMainWorld("electronAPI", {
   isDesktop: true,
+  getStartupTimings: () => ipcRenderer.invoke("get-startup-timings"),
   quitModalReady: () => ipcRenderer.invoke("quit-modal-ready"),
   cancelPackage: () => ipcRenderer.invoke("cancel-package"),
   onPackageProgress: cb => { const listener=(_event,data)=>cb(data);ipcRenderer.on("package-progress",listener);return ()=>ipcRenderer.removeListener("package-progress",listener); },

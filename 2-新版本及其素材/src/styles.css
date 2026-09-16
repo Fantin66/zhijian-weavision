@@ -1526,14 +1526,24 @@ body.fullscreen-active #fullscreenTopControls.fv-vertical-controls{flex-wrap:wra
   #searchWrap{width:142px}#searchWrap:focus-within{width:190px}
 }
 @media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
-/* K4: 应用内"背景流光"开关——关闭时藏元素（不只是停动画，否则静态色块仍透过 Mica 可见） */
-body.reduced-motion #bg-l1-drift{display:none!important}
-/* K5: 流光关闭时给 Mica 一层极淡的静态渐变，避免纯白板失去通透感 */
-body.reduced-motion #bg-l2-mica{
-  background:radial-gradient(ellipse at 50% 30%,rgba(250,250,252,1) 0%,rgba(244,247,252,.96) 60%,rgba(240,244,250,.92) 100%)!important;
+/* K4: 应用内"背景流光"开关——关闭时：
+   - mixed 模式：隐藏整个漂移层，保持纯净背景
+   - 选了具体底色：保留漂移层显示底色，但停止动画、居中静止
+   data-bgfill 在 <html> 上，必须在选择器最前面（作为 body 的祖先） */
+[data-bgfill="mixed"] body.reduced-motion #bg-l1-drift{display:none!important}
+body.reduced-motion #bg-l1-drift,
+body.reduced-motion #bg-l1-drift::before,
+body.reduced-motion #bg-l1-drift::after,
+body.reduced-motion #bg-l1-drift .drift-d{
+  animation:none!important;
+  transform:none!important;
 }
-[data-theme="dark"] body.reduced-motion #bg-l2-mica{
-  background:radial-gradient(ellipse at 50% 30%,rgba(26,26,46,1) 0%,rgba(23,25,40,.96) 60%,rgba(20,22,36,.92) 100%)!important;
+/* K8.5: 流光关闭+无底色时 Mica 用纯色，不用径向渐变——避免一圈圈阴影 */
+[data-bgfill="mixed"] body.reduced-motion #bg-l2-mica{
+  background:rgba(250,250,252,.96)!important;
+}
+[data-bgfill="mixed"][data-theme="dark"] body.reduced-motion #bg-l2-mica{
+  background:rgba(23,25,40,.96)!important;
 }
 
 /* C11: fullscreen tab scrollbar visible */
@@ -1589,13 +1599,14 @@ body.reduced-motion #bg-l2-mica{
 #bg-l1-drift{
   inset:-20%;
   filter:blur(20px);
-  animation:drift-a 68s ease-in-out infinite alternate;
+  animation:drift-a 84s ease-in-out infinite alternate;
 }
-#bg-l1-drift::before,#bg-l1-drift::after{
+#bg-l1-drift::before,#bg-l1-drift::after,#bg-l1-drift .drift-d{
   content:"";position:absolute;inset:-15%;
 }
 #bg-l1-drift::before{animation:drift-b 84s ease-in-out infinite alternate;}
-#bg-l1-drift::after{animation:drift-c 100s ease-in-out infinite alternate;}
+#bg-l1-drift::after{animation:drift-c 84s ease-in-out infinite alternate;}
+#bg-l1-drift .drift-d{animation:drift-d 84s ease-in-out infinite alternate;}
 @keyframes drift-a{
   0%{transform:translate(-30vw,-22vh) scale(1.15)}
   20%{transform:translate(32vw,-15vh) scale(1.08)}
@@ -1620,16 +1631,52 @@ body.reduced-motion #bg-l2-mica{
   80%{transform:translate(-20vw,25vh) scale(1.22)}
   100%{transform:translate(30vw,-22vh) scale(1.1)}
 }
-/* neutral：蓝+绿+琥珀，亮心+外晕渐变，渐变居中靠位移移动 */
+@keyframes drift-d{
+  0%{transform:translate(25vw,-20vh) scale(1.14)}
+  20%{transform:translate(-28vw,18vh) scale(1.18)}
+  40%{transform:translate(20vw,25vh) scale(1.1)}
+  60%{transform:translate(-35vw,-22vh) scale(1.2)}
+  80%{transform:translate(30vw,20vh) scale(1.12)}
+  100%{transform:translate(-20vw,-25vh) scale(1.16)}
+}
+/* neutral：蓝+绿+黄+红（四色），亮心+外晕渐变 */
 [data-bgfamily="neutral"] #bg-l1-drift{
-  background:radial-gradient(circle at 50% 50%,rgba(59,130,246,.75) 0%,rgba(59,130,246,.15) 12%,transparent 35%);
+  background:radial-gradient(circle at 50% 50%,rgba(59,130,246,.75) 0%,rgba(59,130,246,.15) 18%,transparent 50%);
 }
 [data-bgfamily="neutral"] #bg-l1-drift::before{
-  background:radial-gradient(circle at 50% 50%,rgba(52,211,153,.7) 0%,rgba(52,211,153,.13) 12%,transparent 35%);
+  background:radial-gradient(circle at 50% 50%,rgba(52,211,153,.7) 0%,rgba(52,211,153,.13) 18%,transparent 50%);
 }
 [data-bgfamily="neutral"] #bg-l1-drift::after{
-  background:radial-gradient(circle at 50% 50%,rgba(251,191,36,.65) 0%,rgba(251,191,36,.12) 12%,transparent 35%);
+  background:radial-gradient(circle at 50% 50%,rgba(251,191,36,.65) 0%,rgba(251,191,36,.12) 18%,transparent 50%);
 }
+[data-bgfamily="neutral"] #bg-l1-drift .drift-d{
+  background:radial-gradient(circle at 50% 50%,rgba(239,68,68,.65) 0%,rgba(239,68,68,.12) 18%,transparent 50%);
+}
+/* bgfill：选中单色铺满画布——该色光斑扩大、其余隐藏，仍保留漂移动画 */
+[data-bgfill="red"] #bg-l1-drift{background:none}
+[data-bgfill="red"] #bg-l1-drift::before{background:none}
+[data-bgfill="red"] #bg-l1-drift::after{background:none}
+[data-bgfill="red"] #bg-l1-drift .drift-d{
+  background:radial-gradient(circle at 50% 50%,rgba(239,68,68,.5) 0%,rgba(239,68,68,.18) 45%,transparent 85%);
+}
+[data-bgfill="yellow"] #bg-l1-drift{background:none}
+[data-bgfill="yellow"] #bg-l1-drift::before{background:none}
+[data-bgfill="yellow"] #bg-l1-drift .drift-d{background:none}
+[data-bgfill="yellow"] #bg-l1-drift::after{
+  background:radial-gradient(circle at 50% 50%,rgba(251,191,36,.5) 0%,rgba(251,191,36,.18) 45%,transparent 85%);
+}
+[data-bgfill="blue"] #bg-l1-drift{
+  background:radial-gradient(circle at 50% 50%,rgba(59,130,246,.5) 0%,rgba(59,130,246,.18) 45%,transparent 85%);
+}
+[data-bgfill="blue"] #bg-l1-drift::before{background:none}
+[data-bgfill="blue"] #bg-l1-drift::after{background:none}
+[data-bgfill="blue"] #bg-l1-drift .drift-d{background:none}
+[data-bgfill="green"] #bg-l1-drift{background:none}
+[data-bgfill="green"] #bg-l1-drift::before{
+  background:radial-gradient(circle at 50% 50%,rgba(52,211,153,.5) 0%,rgba(52,211,153,.18) 45%,transparent 85%);
+}
+[data-bgfill="green"] #bg-l1-drift::after{background:none}
+[data-bgfill="green"] #bg-l1-drift .drift-d{background:none}
 /* warm：橙+红+金，暖阳（cream/kraft 底色） */
 [data-bgfamily="warm"] #bg-l1-drift{
   background:radial-gradient(circle at 30% 30%,rgba(251,146,60,.4),transparent 55%);
@@ -2236,7 +2283,7 @@ body.reduced-motion #bg-l2-mica{
 
 /* K6: persistent save state and maintenance tools */
 .k6-save,.k6-check{position:fixed;bottom:12px;z-index:120;border:1px solid var(--card-border);border-radius:8px;background:var(--surface);color:var(--ink-dim);padding:6px 10px;font:12px var(--font);cursor:pointer}
-.k6-save{right:16px}.k6-check{right:180px}.k6-save[data-status="error"]{color:var(--danger);border-color:var(--danger)}
+.k6-save{right:16px}.k6-check{right:100px}.k6-save[data-status="error"]{color:var(--danger);border-color:var(--danger)}
 .k6-tools{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:18px}.k6-list-row{display:block;width:100%;text-align:left;padding:12px;margin:6px 0;background:var(--surface);color:var(--ink);border:1px solid var(--card-border);border-radius:8px;cursor:pointer;font:13px var(--font)}
 .k6-progress{position:fixed;bottom:52px;right:16px;z-index:10000;background:var(--surface);color:var(--ink);padding:14px;border:1px solid var(--card-border);border-radius:10px;box-shadow:0 4px 22px #0002}.k6-progress[hidden]{display:none}.k6-progress button{margin-left:20px}.k6-source-highlight{background:#ffe08a;color:#202020}
 .fullscreen-active .k6-check,.fullscreen-active .k6-save{display:none}

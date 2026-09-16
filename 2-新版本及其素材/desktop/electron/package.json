@@ -1,7 +1,7 @@
 {
   "name": "zhijian-weavision",
-  "version": "0.10.4",
-  "description": "织见 · 思维关系板 — Desktop App (K8.4)",
+  "version": "0.10.5",
+  "description": "织见 · 思维关系板 — Desktop App (K8.5)",
   "main": "main.js",
   "scripts": {
     "start": "electron .",
@@ -18,7 +18,8 @@
       "preload.js",
       "icon.png",
       "package-worker.js",
-      "package-ipc.js"
+      "package-ipc.js",
+      "windows-icons.js"
     ],
     "extraResources": [
       {
@@ -50,7 +51,7 @@
       }
     ],
     "directories": {
-      "output": "../../发行版/K8.4"
+      "output": "../../发行版/K8.5"
     },
     "fileAssociations": [
       {
@@ -66,7 +67,7 @@
         "nsis",
         "portable"
       ],
-      "icon": "icon.png"
+      "icon": "icons/clean-3.png"
     },
     "mac": {
       "target": "dmg",

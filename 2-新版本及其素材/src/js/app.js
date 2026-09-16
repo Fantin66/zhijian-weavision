@@ -65,7 +65,7 @@ function setupAutoSave(){
 }
 /* I5: 统一版本标签——网页与桌面共用一个来源（桌面端异步取 package.json 版本号，
    修复关于页把 Promise 拼进字符串显示"v[object Promise]"、网页端回退旧标签"G3"的问题） */
-let APP_VERSION="K8.4";
+let APP_VERSION="K8.5";
 if(window.electronAPI&&window.electronAPI.getVersion){
   try{window.electronAPI.getVersion().then(function(v){if(v)APP_VERSION="v"+v;}).catch(function(){});}catch(e){}
 }
@@ -106,7 +106,12 @@ function loadState(){
       if(d.ui.autoTheme!==undefined)state.autoTheme=d.ui.autoTheme;
       if(d.ui.saveInterval!==undefined)state.saveInterval=d.ui.saveInterval;
       if(d.ui.storagePath)state.storagePath=d.ui.storagePath;
-      if(d.ui.bgColorName&&["default","eye","cream","blue","kraft"].includes(d.ui.bgColorName))state.bgColorName=d.ui.bgColorName;
+      if(d.ui.bgColorName){
+        /* 旧颜色名迁移：default→mixed, eye/cream/kraft→mixed, blue→blue */
+        var legacyBg={default:"mixed",eye:"green",cream:"mixed",blue:"blue",kraft:"mixed"};
+        var migrated=legacyBg[d.ui.bgColorName]||d.ui.bgColorName;
+        if(["mixed","red","yellow","blue","green"].includes(migrated))state.bgColorName=migrated;
+      }
       /* I5-fix: 便签/节点自选颜色随档案持久化（此前每次启动都被重置成默认色） */
       if(d.ui.noteColor&&/^#[0-9a-fA-F]{3,8}$/.test(d.ui.noteColor))state.noteColor=d.ui.noteColor;
       if(d.ui.mindColor&&/^#[0-9a-fA-F]{3,8}$/.test(d.ui.mindColor))state.mindColor=d.ui.mindColor;
@@ -328,7 +333,7 @@ function _applyThemeInner(){
   document.body.classList.toggle("reduced-motion",!!state.reducedMotion); /* H1 任务4: 减弱动画开关联动 body class，让 #bg-l1-drift 等 CSS 动画停止 */
   document.documentElement.dataset.style=state.stylePreset||DEFAULT_STYLE;
   document.documentElement.dataset.variant=variantOf(state.stylePreset||DEFAULT_STYLE);
-  document.documentElement.dataset.bgfamily=driftFamilyOf(state.bgColorName||"default");
+  document.documentElement.dataset.bgfamily=driftFamilyOf(state.bgColorName||"mixed");
   if(typeof updateBgLayers==="function")updateBgLayers();
   if(typeof applyLogo==="function"){var sl=parseInt(localStorage.getItem("zhijian-logo"))||3;applyLogo(sl);}
 }
@@ -390,7 +395,8 @@ function applyLogo(n,showToast){
   if(window.electronAPI&&window.electronAPI.setTaskbarIcon){
     var _iconStyle=localStorage.getItem("zhijian-icon-style")||"clean";
     window.electronAPI.setTaskbarIcon({preset:n,style:_iconStyle}).then(function(r){
-      if(r&&r.ok===false)console.error("taskbar icon failed:",r.error);
+      if(r&&r.ok===false){console.error("taskbar icon failed:",r.error);if(showToast)toast("任务栏图标切换失败："+r.error);}
+      else if(r&&r.warning&&showToast)toast(r.warning);
     });
   }
   /* G9: 仅在用户手动切换图标时弹 toast，主题切换时不弹 */
@@ -427,9 +433,10 @@ function dc(light,dark){return state.dark?dark:light;}
 function updateBgLayers(){
   const de=document.documentElement;
   de.dataset.bgpattern=state.bgPattern||"grid";
-  de.dataset.bgfamily=driftFamilyOf(state.bgColorName||"default");
+  de.dataset.bgfamily=driftFamilyOf(state.bgColorName||"mixed");
+  de.dataset.bgfill=state.bgColorName||"mixed";
   /* F2: 先重算 bgColor（主题切换时 render() 尚未跑到，需确保同步） */
-  state.bgColor=getBgColor(state.bgColorName,state.dark);
+  state.bgColor=getBgColor(state.bgColorName||"mixed",state.dark);
   const board=document.getElementById("board");
   if(board){board.style.background=state.bgColor;}
   /* F3: 拟态/简约变体 L2 = 用户底色（固定实色会盖住底色，导致切换无效） */
@@ -727,14 +734,16 @@ function mountControls(){
     toast("纹理："+labels[state.bgPattern]);
   });
   document.getElementById("bgColorBtn").addEventListener("click",()=>{
-    const cols=["default","eye","cream","blue","kraft"];
-    const idx=cols.indexOf(state.bgColorName||"default");
+    const cols=["mixed","red","yellow","blue","green"];
+    const labels={mixed:"流光",red:"红色",yellow:"黄色",blue:"蓝色",green:"绿色"};
+    const idx=cols.indexOf(state.bgColorName||"mixed");
     state.bgColorName=cols[(idx+1)%cols.length];
     state.bgColor=getBgColor(state.bgColorName,state.dark);
     document.documentElement.dataset.bgfamily=driftFamilyOf(state.bgColorName);
     if(typeof updateBgLayers==="function")updateBgLayers();
     render();saveStateDebounced();
     requestAnimationFrame(()=>render());
+    toast("背景："+labels[state.bgColorName]);
   });
   document.getElementById("themeBtn").addEventListener("click",()=>{
     /* I5-fix: 顶栏主题按钮此前在"跟随系统"（默认开）时被 applyTheme 的系统回读立刻打回，形同虚设。
@@ -1329,9 +1338,12 @@ function sidePeek(on,source="edge",pointerY=lastPointer&&lastPointer.y){
     peekTimer=0;
   },PEEK_DELAY);
 }
-/* 指针是否悬停在侧栏区域内 */
+/* 指针是否悬停在侧栏区域内，或收起态下停留在屏幕左边缘热区 */
 function isPointerOverHoverZone(){
   if(!lastPointer)return false;
+  /* 收起态：侧栏已 translateX(-100%) 移出屏幕，getBoundingClientRect 命中不了，
+     额外检查鼠标是否在屏幕左边缘 8px 热区内 */
+  if(state.sideCollapsed&&lastPointer.x<8)return true;
   const sp=sidePanel.getBoundingClientRect();
   if(lastPointer.x>=sp.left&&lastPointer.x<=sp.right&&lastPointer.y>=sp.top&&lastPointer.y<=sp.bottom)return true;
   return false;
@@ -1343,15 +1355,20 @@ function isPointerOverHoverZone(){
   sidePanel.addEventListener("mouseleave",()=>{peekLocked=false;sidePeek(false);});
   /* 键盘可达：Tab 聚焦到面板内也浮出 */
   sidePanel.addEventListener("focusin",()=>{peekLocked=true;sidePeek(true,"panel");});
-  /* 在画布上移动时，若面板处于浮出且鼠标不在其内 → 走滞后缓冲收回 */
+  /* 在画布上移动时：边缘触发浮出 + 浮出后鼠标离开则滞后缓冲收回 */
   document.addEventListener("pointermove",e=>{
     lastPointer={x:e.clientX,y:e.clientY};
     if(!state.sideCollapsed)return;
-    if(!sidePanel.classList.contains("peek"))return;
-    if(peekLocked)return;
-    const r=sidePanel.getBoundingClientRect();
-    const inside=e.clientX>=r.left&&e.clientX<=r.right&&e.clientY>=r.top&&e.clientY<=r.bottom;
-    if(!inside&&e.clientX>14)sidePeek(false);
+    /* 已浮出时：检查是否需要收回 */
+    if(sidePanel.classList.contains("peek")){
+      if(peekLocked)return;
+      const r=sidePanel.getBoundingClientRect();
+      const inside=e.clientX>=r.left&&e.clientX<=r.right&&e.clientY>=r.top&&e.clientY<=r.bottom;
+      if(!inside&&e.clientX>14)sidePeek(false);
+      return;
+    }
+    /* 未浮出时：鼠标进入左边缘热区 → 触发浮出（走 180ms 延迟） */
+    if(e.clientX<8)sidePeek(true,"edge");
   },{passive:true});
 })();
 
@@ -1745,21 +1762,15 @@ function renderSettingsContent(catId,content){
         var sItem=document.createElement("div");
         sItem.style.cssText="flex:1;cursor:pointer;padding:10px 12px;border:2px solid "+(iconStyleVal===s.id?"var(--accent)":"var(--card-border)")+";border-radius:10px;transition:all .15s ease";
         sItem.innerHTML='<div style="font-size:12px;font-weight:600;color:'+(iconStyleVal===s.id?"var(--accent)":"var(--ink-dim)")+'">'+s.label+'</div><div style="font-size:10px;color:var(--ink-faint);margin-top:4px">'+s.desc+'</div>';
-        sItem.onclick=function(){
-          localStorage.setItem("zhijian-icon-style",s.id);
+        sItem.onclick=async function(){
           var preset=parseInt(localStorage.getItem("zhijian-logo"))||3;
-          showSettings();
-          if(window.electronAPI&&window.electronAPI.setTaskbarIcon){
-            window.electronAPI.setTaskbarIcon({preset:preset,style:s.id}).then(function(r){
-              if(r&&r.ok===false){
-                toast("任务栏图标切换失败："+(r.error||"未知错误"));
-              }else{
-                toast("任务栏图标："+s.label);
-              }
-            });
-          }else{
-            toast("任务栏图标："+s.label);
-          }
+          try{
+            var r=await window.electronAPI.setTaskbarIcon({preset:preset,style:s.id});
+            if(!r||!r.ok){toast("任务栏图标切换失败："+(r&&r.error||"未知错误"));return;}
+            localStorage.setItem("zhijian-icon-style",s.id);
+            showSettings();
+            toast(r.warning||"任务栏图标："+s.label);
+          }catch(e){toast("任务栏图标切换失败："+e.message);}
         };
         iconStyleChoices.appendChild(sItem);
       })(iconStyles[si]);
@@ -1773,22 +1784,18 @@ function renderSettingsContent(catId,content){
     var sd=content.querySelector("#setDark");
     if(sd)sd.onclick=function(){_themeToken++;state.dark=true;_applyThemeInner();render();saveStateDebounced();showSettings();};
     var bfs=content.querySelector("#bgFlowSwitch");
-    if(bfs)bfs.onclick=function(){state.reducedMotion=!state.reducedMotion;document.body.classList.toggle("reduced-motion",state.reducedMotion);saveStateDebounced();showSettings();};
-    content.querySelectorAll(".fantinIconBtn").forEach(function(b){b.onclick=function(){
-      state.fantinIcon=parseInt(b.dataset.n);
-      saveStateDebounced();
-      showSettings();
-      if(window.electronAPI&&window.electronAPI.setFantinIcon){
-        window.electronAPI.setFantinIcon(state.fantinIcon).then(function(r){
-          if(r&&r.ok===false){
-            toast("Fantin 图标更新失败："+(r.error||"未知错误"));
-          }else{
-            toast("Fantin 图标已更新（实时生效）");
-          }
-        });
-      }else{
-        toast("Fantin 图标已更新（实时生效）");
-      }
+    if(bfs)bfs.onclick=function(){state.reducedMotion=!state.reducedMotion;document.body.classList.toggle("reduced-motion",state.reducedMotion);saveStateDebounced();render();showSettings();};
+    content.querySelectorAll(".fantinIconBtn").forEach(function(b){b.onclick=async function(){
+      var selected=parseInt(b.dataset.n);
+      try{
+        if(!window.electronAPI||!window.electronAPI.setFantinIcon){toast("请在桌面版中切换文件图标");return;}
+        var r=await window.electronAPI.setFantinIcon(selected);
+        if(!r||!r.ok){toast("Fantin 图标更新失败："+(r&&r.error||"未知错误"));return;}
+        state.fantinIcon=selected;
+        saveStateDebounced();
+        showSettings();
+        toast("Fantin 图标已更新");
+      }catch(e){toast("Fantin 图标更新失败："+e.message);}
     };});
   }
   else if(catId==="shortcuts"){

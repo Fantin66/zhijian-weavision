@@ -207,7 +207,7 @@ LAYOUT_THUMBS.logic=LAYOUT_THUMBS.right;
 const LAYOUT_ORDER=[["logic","逻辑图"],["org","组织架构图"],["fishbone","鱼骨图"],["timeline","时间轴"]];
 /* 背景色板（与 _BCM 一致） */
 /* 背景色板（与 BK 函数内 _BCM 一致，供二级菜单全局使用） */
-const BG_COLORS=[["default","默认"],["eye","护眼"],["cream","米白"],["blue","浅蓝"],["kraft","牛皮纸"]];
+const BG_COLORS=[["mixed","流光"],["red","红色"],["yellow","黄色"],["blue","蓝色"],["green","绿色"]];
 const BG_PATTERNS=[["grid","网格"],["dots","圆点"],["paper","纸纹"],["blank","纯色"]];
 function applyLayout(id){
   pushHistory(state.layoutType===id?"重新排版":"切换布局");
@@ -223,11 +223,14 @@ function relayoutCanvas(){
 function applyBgColor(name){
   state.bgColorName=name;
   state.bgColor=getBgColor(name||"default", state.dark);
-  applyTheme();render();saveState();
+  if(typeof updateBgLayers==="function")updateBgLayers();
+  render();saveState();
   renderDockSub();
 }
 function applyBgPattern(pat){
-  state.bgPattern=pat;render();saveState();
+  state.bgPattern=pat;
+  if(typeof updateBgLayers==="function")updateBgLayers();
+  render();saveState();
   renderDockSub();
   toast("纹理："+((BG_PATTERNS.find(x=>x[0]===pat)||["",""])[1]||pat));
 }

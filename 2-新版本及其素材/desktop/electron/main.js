@@ -1,7 +1,30 @@
 const { app, BrowserWindow, shell, nativeTheme, ipcMain, dialog, Menu, nativeImage } = require("electron");
 const path = require("path");
 const fs = require("fs");
-const { execFile } = require("child_process");
+const windowsIcons = require("./windows-icons");
+
+/* K8.5: 设置 AppUserModelID——安装版从 .lnk 快捷方式启动时，Windows 任务栏
+   按 AUMID 匹配窗口和快捷方式。不设 AUMID 则任务栏用快捷方式图标而非窗口图标，
+   win.setIcon() 切换任务栏图标在安装版无效果。设为与 package.json appId 一致。 */
+if (process.platform === "win32") app.setAppUserModelId("com.weavision.zhijian");
+
+/* K8.5: 启动时按版本号清理 V8 代码缓存——安装版覆盖升级时旧缓存可能导致
+   "代码正确但行为异常"。版本号变化时清一次 Cache/Code Cache/GPUCache。 */
+(function clearCacheIfVersionChanged() {
+  try {
+    var ud = app.getPath("userData");
+    var flag = path.join(ud, ".code-ver");
+    var cur = app.getVersion();
+    var prev = null;
+    try { prev = fs.readFileSync(flag, "utf-8").trim(); } catch (e) {}
+    if (prev === cur) return;
+    ["Cache", "Code Cache", "GPUCache"].forEach(function (d) {
+      var p = path.join(ud, d);
+      try { fs.rmSync(p, { recursive: true, force: true }); } catch (e) {}
+    });
+    try { fs.writeFileSync(flag, cur, "utf-8"); } catch (e) {}
+  } catch (e) {}
+})();
 
 let win = null;
 let pendingFantinPath = null;  /* G8: 文件关联 — 双击 .fantin 时暂存路径 */
@@ -18,72 +41,41 @@ function extractFantinFromArgv(argv) {
 
 /* G11: 任务栏图标风格 — 扁平化(带框,分亮暗) vs 轻拟物(无框透明,单一) */
 let taskbarPreset = 3, taskbarStyle = "clean";
-/* I7-fix: 安装版从快捷方式启动，Windows 任务栏用快捷方式图标而非窗口图标。
-   切换任务栏图标时同步把裁剪后的图标包成 ICO 更新到桌面/开始菜单的 .lnk 快捷方式。
-   ICO 直接包裹 PNG 原始数据（22 字节 ICO 头 + PNG 字节），完美保留 alpha 透明通道。
-   传入的是 nativeImage（已裁剪透明边距 + resize），保证快捷方式图标和窗口图标大小一致。
-   每个预设/风格用独立 ICO 文件名，Windows 看到新路径才刷新缓存。 */
-function updateShortcutIcons(nativeImg, baseName) {
-  if (process.platform !== "win32") return;
-  try {
-    /* nativeImage → PNG buffer（已裁剪透明边距，内容填满）→ ICO */
-    var pngData = nativeImg.toPNG();
-    var header = Buffer.alloc(6);
-    header.writeUInt16LE(0, 0);  /* reserved */
-    header.writeUInt16LE(1, 2);  /* type = icon */
-    header.writeUInt16LE(1, 4);  /* count = 1 */
-    var dir = Buffer.alloc(16);
-    dir.writeUInt8(0, 0);   /* width (0=256) */
-    dir.writeUInt8(0, 1);   /* height (0=256) */
-    dir.writeUInt8(0, 2);   /* color count */
-    dir.writeUInt8(0, 3);   /* reserved */
-    dir.writeUInt16LE(1, 4);     /* planes */
-    dir.writeUInt16LE(32, 6);    /* bit count */
-    dir.writeUInt32LE(pngData.length, 8);  /* bytes in resource */
-    dir.writeUInt32LE(22, 12);             /* image offset = 6+16 */
-    var ico = Buffer.concat([header, dir, pngData]);
-    /* 用预设名+风格名做文件名，切换时 Windows 看到新路径才刷新 */
-    var icoDir = path.join(app.getPath("userData"), "icons");
-    if (!fs.existsSync(icoDir)) fs.mkdirSync(icoDir, { recursive: true });
-    var icoPath = path.join(icoDir, baseName + ".ico");
-    fs.writeFileSync(icoPath, ico);
-    /* PowerShell 只负责找快捷方式 + 改 IconLocation + 刷新缓存 */
-    var ps = "param([string]$IcoPath)\r\n" +
-      "$shell = New-Object -ComObject WScript.Shell\r\n" +
-      "$desktop = [Environment]::GetFolderPath('Desktop')\r\n" +
-      "$startMenu = [Environment]::GetFolderPath('StartMenu')\r\n" +
-      "Get-ChildItem -Path $desktop -Filter '*.lnk' -ErrorAction SilentlyContinue | Where-Object { $_.Name -like '*zhijian*' -or $_.Name -like '*织见*' } | ForEach-Object {\r\n" +
-      "  $sc = $shell.CreateShortcut($_.FullName)\r\n" +
-      "  $sc.IconLocation = $IcoPath + ',0'\r\n" +
-      "  $sc.Save()\r\n" +
-      "}\r\n" +
-      "Get-ChildItem -Path $startMenu -Filter '*.lnk' -Recurse -ErrorAction SilentlyContinue | Where-Object { $_.Name -like '*zhijian*' -or $_.Name -like '*织见*' } | ForEach-Object {\r\n" +
-      "  $sc = $shell.CreateShortcut($_.FullName)\r\n" +
-      "  $sc.IconLocation = $IcoPath + ',0'\r\n" +
-      "  $sc.Save()\r\n" +
-      "}\r\n" +
-      "$sig='[System.Runtime.InteropServices.DllImport(\"shell32.dll\")] public static extern void SHChangeNotify(int wEventId, int uFlags, IntPtr d1, IntPtr d2);'\r\n" +
-      "try { Add-Type -Namespace ZJN -Name S -MemberDefinition $sig } catch {}\r\n" +
-      "[ZJN.S]::SHChangeNotify(134217728, 0, [IntPtr]::Zero, [IntPtr]::Zero)\r\n";
-    var tmp = safeJoin(app.getPath("temp"), "zhijian-shortcut-icon-" + Date.now() + ".ps1");
-    fs.writeFileSync(tmp, ps, "utf-8");
-    execFile(PS_EXE, ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", tmp, "-IcoPath", icoPath], { shell: false, windowsHide: true }, function () {
-      fs.rmSync(tmp, { force: true });
-    });
-  } catch (e) {
-    console.error("shortcut icon update failed:", e.message);
-  }
-}
+/* Serialize updates so rapid selections and theme changes cannot restore an older icon. */
+let iconUpdateQueue = Promise.resolve();
 function applyTaskbarIcon() {
-  if (!win) return { ok: false, error: "no window" };
+  const preset = taskbarPreset, style = taskbarStyle;
+  const job = iconUpdateQueue.then(() => applyTaskbarIconNow(preset, style));
+  iconUpdateQueue = job.catch(() => {});
+  return job.catch(e => ({ ok: false, error: e.message }));
+}
+async function updateShortcutIcons(nativeImg, baseName) {
+  if (process.platform !== "win32") return { errors: [] };
+  const icoDir = path.join(app.getPath("userData"), "icons");
+  fs.mkdirSync(icoDir, { recursive: true });
+  const icoPath = path.join(icoDir, baseName + ".ico");
+  fs.writeFileSync(icoPath, windowsIcons.toIco(nativeImg));
+  const executable = process.env.PORTABLE_EXECUTABLE_FILE || process.execPath;
+  const roots = [app.getPath("desktop"), path.join(app.getPath("appData"), "Microsoft/Windows/Start Menu"),
+    path.join(app.getPath("appData"), "Microsoft/Internet Explorer/Quick Launch/User Pinned")];
+  if (process.env.PUBLIC) roots.push(path.join(process.env.PUBLIC, "Desktop"));
+  if (process.env.ProgramData) roots.push(path.join(process.env.ProgramData, "Microsoft/Windows/Start Menu"));
+  const result = windowsIcons.updateShortcuts(shell, roots, executable, icoPath);
+  if (win && !win.isDestroyed()) win.setAppDetails({ appId: windowsIcons.APP_ID,
+    appIconPath: icoPath, appIconIndex: 0, relaunchCommand: '"' + executable + '"', relaunchDisplayName: "织见" });
+  await windowsIcons.runPowerShell(windowsIcons.REFRESH);
+  return result;
+}
+async function applyTaskbarIconNow(preset, style) {
+  if (!win || win.isDestroyed()) return { ok: false, error: "no window" };
   const isDark = nativeTheme.shouldUseDarkColors;
   /* I5-fix: 打包后 __dirname 在 app.asar 内没有 icons，必须读 extraResources 的 resourcesPath/icons（与 set-fantin-icon 同一分支） */
   const iconsDir = app.isPackaged ? path.join(process.resourcesPath, "icons") : path.join(__dirname, "icons");
   let iconPath;
-  if (taskbarStyle === "clean") {
-    iconPath = path.join(iconsDir, "clean-" + taskbarPreset + ".png");
+  if (style === "clean") {
+    iconPath = path.join(iconsDir, "clean-" + preset + ".png");
   } else {
-    iconPath = path.join(iconsDir, "flat-" + taskbarPreset + "-" + (isDark ? "dark" : "light") + ".png");
+    iconPath = path.join(iconsDir, "flat-" + preset + "-" + (isDark ? "dark" : "light") + ".png");
   }
   if (!fs.existsSync(iconPath)) {
     console.error("taskbar icon file missing:", iconPath);
@@ -148,16 +140,15 @@ function applyTaskbarIcon() {
     console.error("taskbar crop fallback:", e.message);
   }
   win.setIcon(finalImg);
-  /* I7-fix: 同步更新快捷方式图标——用裁剪后的图像（和窗口图标一致），不是原始 PNG */
-  updateShortcutIcons(finalImg, path.basename(iconPath, ".png"));
-  /* I7-fix: Windows 任务栏图标缓存——toggle skipTaskbar 强制任务栏按钮销毁重建，新图标才生效 */
-  if (process.platform === "win32" && !win.isDestroyed()) {
-    var wasMinimized = win.isMinimized();
+  const shortcuts = await updateShortcutIcons(finalImg, path.basename(iconPath, ".png"));
+  if (process.platform === "win32" && win && !win.isDestroyed()) {
+    const wasMinimized = win.isMinimized();
     win.setSkipTaskbar(true);
     win.setSkipTaskbar(false);
     if (wasMinimized) win.minimize();
   }
-  return { ok: true, path: iconPath };
+  return { ok: true, path: iconPath, warning: shortcuts.errors.length
+    ? "任务栏图标已更新，部分公共快捷方式无写入权限：" + shortcuts.errors.join("；") : undefined };
 }
 
 /* K5: 自动安装 zhijian-ai skill 到用户 ~/.agents/skills/ 目录。
@@ -224,10 +215,10 @@ function createWindow() {
 
   win.setMenuBarVisibility(false);
 
-  /* 窗口首屏优先，快捷方式图标与辅助指引复制放到页面加载后。 */
-  win.webContents.once("did-finish-load",()=>{
-    setTimeout(()=>{if(win&&!win.isDestroyed()){applyTaskbarIcon();installFantinSkill();}},1000);
-  });
+  /* K8.5: 恢复立即执行——延迟 1s 会导致安装版任务栏初始图标闪烁，
+     且如果用户快速操作可能与 IPC 切换产生时序冲突 */
+  applyTaskbarIcon();
+  installFantinSkill();
 
   nativeTheme.on("updated", () => {
     /* 系统主题变化：切换任务栏图标 + 通知页面（如果 autoTheme 开启） */
@@ -286,59 +277,24 @@ ipcMain.handle("get-version", () => {
   return app.getVersion();
 });
 
-// H4: 设置 .fantin 文件图标——运行时写注册表 HKCU\...\.fantin\DefaultIcon + SHChangeNotify 刷新缓存（像 WPS 那样实时改，不用重装）。n=1/2/3
-// 安全：icoName 取白名单 + safeJoin 边界校验（防穿越）；reg/powershell 用 execFile 参数数组 shell=false（防注入）；刷新脚本为常量无动态数据。
-const FANTIN_ICONS = ["fantin-1.ico", "fantin-2.ico", "fantin-3.ico"];
-/* I5-fix: 可执行程序一律用代码内字面量绝对路径，不读 SystemRoot 等环境变量——
-   防止环境变量被篡改后 execFile 启动攻击者放置的同名假程序。
-   （极端的非 C:\Windows 安装会导致图标刷新功能静默降级，不影响应用其它功能） */
-const REG_EXE = "C:\\Windows\\System32\\reg.exe";
-const PS_EXE = "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe";
-ipcMain.handle("set-fantin-icon", async (event, n) => {
-  try {
-    n = parseInt(n) || 2;
-    if (n < 1 || n > 3) n = 2;
-    const icoName = FANTIN_ICONS[n - 1];
+// Registry writes and shell notification are awaited; failures are returned to settings.
+let fantinUpdateQueue = Promise.resolve();
+ipcMain.handle("set-fantin-icon", (event, n) => {
+  const job = fantinUpdateQueue.then(async () => {
+    if (process.platform !== "win32") return { ok: false, error: "仅 Windows 支持文件图标切换" };
+    n = Number(n);
+    if (![1, 2, 3].includes(n)) return { ok: false, error: "无效图标" };
+    const icoName = "fantin-" + n + ".ico";
     const srcDir = app.isPackaged ? path.join(process.resourcesPath, "icons") : path.join(__dirname, "icons");
-    const src = safeJoin(srcDir, icoName);
-    if (!fs.existsSync(src)) return { ok: false, error: "icon not found: " + src };
-    /* 拷到 userData/icons（ASCII 路径，注册表值不含中文，Windows 读图标路径才稳） */
     const dstDir = path.join(app.getPath("userData"), "icons");
-    if (!fs.existsSync(dstDir)) fs.mkdirSync(dstDir, { recursive: true });
-    const dst = safeJoin(dstDir, icoName);
-    fs.copyFileSync(src, dst);
-    /* 写注册表——reg.exe + execFile 参数数组，dst 作参数（不拼命令） */
-    await new Promise((res) => {
-      execFile(REG_EXE, ["add", "HKCU\\Software\\Classes\\.fantin\\DefaultIcon", "/ve", "/d", dst, "/f"], { shell: false, windowsHide: true }, () => res());
-    });
-    /* I6-fix: 同时写 ProgID 的 DefaultIcon——NSIS 安装器把图标设在 ProgID 层，
-       只写扩展层 DefaultIcon 在部分 Windows 构建上不生效（Windows 图标解析顺序有缓存） */
-    await new Promise((res) => {
-      execFile(REG_EXE, ["query", "HKCU\\Software\\Classes\\.fantin", "/ve"], { shell: false, windowsHide: true, maxBuffer: 4096 }, (err, stdout) => {
-        if (!err && stdout) {
-          /* 解析 reg query 输出找 ProgID（Default 值） */
-          var m = stdout.match(/REG_SZ\s+(.+?)\s*$/m);
-          if (m && m[1] && m[1].trim()) {
-            var progId = m[1].trim();
-            /* 写 ProgID 的 DefaultIcon（best-effort，失败不影响主流程） */
-            execFile(REG_EXE, ["add", "HKCU\\Software\\Classes\\" + progId + "\\DefaultIcon", "/ve", "/d", dst, "/f"], { shell: false, windowsHide: true }, () => {});
-          }
-        }
-        res();
-      });
-    });
-    /* 刷新图标缓存——常量 PS 脚本（无动态数据）走临时 .ps1 + execFile -File */
-    const ps = "$sig='[System.Runtime.InteropServices.DllImport(\"shell32.dll\")] public static extern void SHChangeNotify(int wEventId, int uFlags, IntPtr d1, IntPtr d2);'\r\ntry { Add-Type -Namespace ZJN -Name S -MemberDefinition $sig } catch {}\r\n[ZJN.S]::SHChangeNotify(134217728, 0, [IntPtr]::Zero, [IntPtr]::Zero)\r\n";
-    const tmp = safeJoin(app.getPath("temp"), "zhijian-fantin-icon-" + Date.now() + ".ps1");
-    fs.writeFileSync(tmp, ps, "utf-8");
-    await new Promise((res) => {
-      execFile(PS_EXE, ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", tmp], { shell: false, windowsHide: true }, () => res());
-    });
-    fs.rmSync(tmp, { force: true });
+    fs.mkdirSync(dstDir, { recursive: true });
+    const dst = path.join(dstDir, icoName);
+    fs.copyFileSync(path.join(srcDir, icoName), dst);
+    await windowsIcons.runPowerShell(windowsIcons.fantinScript(dst, process.env.PORTABLE_EXECUTABLE_FILE || process.execPath));
     return { ok: true, path: dst };
-  } catch (e) {
-    return { ok: false, error: e.message };
-  }
+  });
+  fantinUpdateQueue = job.catch(() => {});
+  return job.catch(e => ({ ok: false, error: e.message }));
 });
 
 // G8: 使用系统默认应用打开文件

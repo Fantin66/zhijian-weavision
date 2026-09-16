@@ -58,21 +58,21 @@ const VARIANT_MAP={
 };
 function variantOf(key){return VARIANT_MAP[key]||"fluent";}
 
-/* 统一底色函数 — 替代原先散落在 4 处的 _BCM 副本
-   底色牵引漂移色板: 底色色族决定漂移色族方向 */
+/* 统一底色函数 — 背景色即流光色：mixed=默认白底三色流光，red/yellow/blue=单色铺满 */
 function getBgColor(name,dark){
   const m={
-    default:dark?"#1a1a2e":"#ffffff",
-    eye:dark?"#1a2a1e":"#c8e6c9",
-    cream:dark?"#2a2a20":"#fff8e1",
-    blue:dark?"#1a2030":"#e3f2fd",
-    kraft:dark?"#2a2218":"#f4ecd8",
+    mixed:dark?"#1a1a2e":"#ffffff",
+    red:dark?"#2a1518":"#fff5f5",
+    yellow:dark?"#2a2515":"#fffef0",
+    blue:dark?"#151a2a":"#f0f5ff",
+    green:dark?"#152a1a":"#f0fff5",
   };
-  return m[name]||m.default;
+  return m[name]||m.mixed;
 }
-/* 底色→漂移色族映射（L1 漂移色板跟随底色色族，避免漂移色与底色打架） */
+/* 漂移色族映射：所有选项统一用 neutral 族（蓝+红+黄三色），
+   data-bgfill 属性单独控制单色铺满 */
 function driftFamilyOf(bgName){
-  return {default:"neutral",eye:"green",cream:"warm",blue:"cool",kraft:"warm"}[bgName]||"neutral";
+  return "neutral";
 }
 /* 返回当前风格的关键视觉参数（统一供节点/卡片/连线查询） */
 function styleCfg(){

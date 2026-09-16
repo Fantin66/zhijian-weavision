@@ -96,7 +96,7 @@ const state={
   search:null,
   bgColor:"#fbfbfd",
   bgPattern:"grid",      /* 纹理版式 */
-  bgColorName:"default", /* 背景颜色 */
+  bgColorName:"mixed", /* 背景颜色：mixed=三色流光, red/yellow/blue=单色铺满 */
   dark:false,
   fontPreset:"serif",
 };
