@@ -16,6 +16,7 @@ const L1Research=(()=>{
         if(link.bId===id&&(direction!=='out'||!link.directional))other=link.aId;
         if(other!==undefined&&!seen.has(other)){seen.add(other);queue.push([...route,other]);}
       }
+      if(type==='all'){const it=canvas.items.find(i=>i.id===id);if(it){if(it.parentId!=null&&!seen.has(it.parentId)){seen.add(it.parentId);queue.push([...route,it.parentId]);}for(const ch of it.children||[]){if(!seen.has(ch)){seen.add(ch);queue.push([...route,ch]);}}}}
     }return [];}
   function showRelations(){
     const canvas=curCanvas(),project=curProject();
@@ -27,7 +28,7 @@ const L1Research=(()=>{
     function relations(){list.innerHTML='';for(const l of canvas.links||[]){if(filter.value!=='all'&&l.relationType!==filter.value)continue;const b=document.createElement('button');b.className='k6-list-row';b.textContent=(item(l.aId)?.text||l.aId)+(l.directional?' → ':' ↔ ')+(item(l.bId)?.text||l.bId)+' · '+(RELATION_TYPES[l.relationType]?.label||l.relationType)+' · '+(l.annotation||'');b.onclick=()=>{hideModal();L1Search.locate({projectId:project.id,canvasId:canvas.id,itemId:l.aId,linkId:l.id});};list.append(b);}}
     filter.onchange=relations;relations();
     modal.querySelector('#l1FindPath').onclick=()=>{const from=item(modal.querySelector('#l1RelFrom').value),to=item(modal.querySelector('#l1RelTo').value);if(!from||!to)return;route=shortest(canvas,from.id,to.id,filter.value,modal.querySelector('#l1RelDirection').value);list.textContent=route.length?route.map(id=>item(id)?.text||id).join(' → '):'所选方向和关系类型下没有可达路径';};
-    function routes(){const host=modal.querySelector('#l1Routes');host.innerHTML='';for(const r of project.readingPaths||[]){const b=document.createElement('button');b.className='k6-list-row';b.textContent=r.name+' · '+r.steps.length+' 步';b.onclick=()=>play(r,0,project.id);host.append(b);}}
+    function routes(){const host=modal.querySelector('#l1Routes');host.innerHTML='';for(const r of project.readingPaths||[]){const row=document.createElement('div');row.style.cssText='display:flex;align-items:center;gap:4px';const b=document.createElement('button');b.className='k6-list-row';b.style.flex='1';b.textContent=r.name+' · '+r.steps.length+' 步';b.onclick=()=>play(r,0,project.id);const del=document.createElement('button');del.className='k6-list-row';del.textContent='×';del.title='删除此阅读路径';del.style.cssText='flex:none;width:28px;padding:0;font-size:16px;color:var(--ink-faint)';del.onclick=async()=>{const i=project.readingPaths.indexOf(r);if(i>=0){project.readingPaths.splice(i,1);if(await saveState())toast('已删除');routes();}};row.append(b,del);host.append(row);}}
     modal.querySelector('#l1SavePath').onclick=async()=>{if(!route.length){toast('请先查找一条路径');return;}(project.readingPaths||=[]).push({id:crypto.randomUUID(),name:route.map(id=>item(id)?.text||id).join(' → ').slice(0,100),steps:route.map(itemId=>({canvasId:canvas.id,itemId}))});if(await saveState()){toast('阅读路径已保存');routes();}};routes();
   }
   function play(route,index,projectId){const step=route.steps[index];if(!step)return;

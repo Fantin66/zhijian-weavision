@@ -175,6 +175,7 @@ function createWindow() {
     title: "织见 · 思维关系板",
     icon: path.join(__dirname, "icon.png"),
     backgroundColor: "#ffffff",
+    frame: false,
     webPreferences: {
       preload: path.join(__dirname, "preload.js"),
       contextIsolation: true,
@@ -377,6 +378,15 @@ ipcMain.handle("quit-modal-ready",()=>{if(quitFallbackTimer){clearTimeout(quitFa
 ipcMain.handle("cancel-quit", () => {
   if (quitFallbackTimer) { clearTimeout(quitFallbackTimer); quitFallbackTimer = null; }
 });
+
+ipcMain.handle("set-titlebar-overlay", (e, opts) => {
+  if (win && !win.isDestroyed()) win.setTitleBarOverlay(opts);
+});
+
+/* L4: 自定义窗口控制按钮 IPC */
+ipcMain.handle("win-minimize", () => { if (win && !win.isDestroyed()) win.minimize(); });
+ipcMain.handle("win-maximize-toggle", () => { if (win && !win.isDestroyed()) { if (win.isMaximized()) win.unmaximize(); else win.maximize(); } });
+ipcMain.handle("win-close", () => { if (win && !win.isDestroyed()) win.close(); });
 
 /* I5-fix: 任何 app.quit() 路径（含 macOS Cmd+Q）都先置退出标志，避免被 close 拦截 */
 app.on("before-quit", e => { if(!isQuitting&&win&&!win.isDestroyed()){e.preventDefault();win.close();} });

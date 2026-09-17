@@ -56,6 +56,10 @@ contextBridge.exposeInMainWorld("electronAPI", {
   confirmQuit: () => ipcRenderer.invoke("confirm-quit"),
   /* I5-fix: 用户取消退出时通知主进程清掉兜底定时器 */
   cancelQuit: () => ipcRenderer.invoke("cancel-quit"),
+  setTitleBarOverlay: (opts) => ipcRenderer.invoke("set-titlebar-overlay", opts),
+  minimize: () => ipcRenderer.invoke("win-minimize"),
+  maximizeToggle: () => ipcRenderer.invoke("win-maximize-toggle"),
+  closeWindow: () => ipcRenderer.invoke("win-close"),
 });
 
 /* 页面加载后注入桌面标记 */

@@ -309,12 +309,16 @@ function applyTheme(){
 }
 function _applyThemeInner(){
   document.documentElement.setAttribute("data-theme",state.dark?"dark":"light");
-  document.body.classList.toggle("reduced-motion",!!state.reducedMotion); /* H1 任务4: 减弱动画开关联动 body class，让 #bg-l1-drift 等 CSS 动画停止 */
+  document.body.classList.toggle("reduced-motion",!!state.reducedMotion);
   document.documentElement.dataset.style=state.stylePreset||DEFAULT_STYLE;
   document.documentElement.dataset.variant=variantOf(state.stylePreset||DEFAULT_STYLE);
   document.documentElement.dataset.bgfamily=driftFamilyOf(state.bgColorName||"mixed");
   if(typeof updateBgLayers==="function")updateBgLayers();
   if(typeof applyLogo==="function"){var sl=parseInt(localStorage.getItem("zhijian-logo"))||3;applyLogo(sl);}
+  /* L4: 同步 titleBarOverlay 颜色到当前主题 */
+  if(window.electronAPI&&window.electronAPI.setTitleBarOverlay){
+    window.electronAPI.setTitleBarOverlay({color:state.dark?"#1a1a2e":"#f0f6ff",symbolColor:state.dark?"#f2f5fb":"#1a1a2e"});
+  }
 }
 /* G2/G3: 系统主题变化监听——网页用 matchMedia，桌面用 nativeTheme IPC（main.js 已处理） */
 if(window.matchMedia&&!window.electronAPI){
@@ -675,8 +679,14 @@ function mountControls(){
   document.getElementById("bgBtn").innerHTML='<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="3"/><path d="M3 9h18M3 15h18M9 3v18M15 3v18"/></svg>';
   document.getElementById("bgColorBtn").innerHTML=ICON.palette;
   document.getElementById("themeBtn").innerHTML='<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79Z"/></svg>';
-  document.getElementById("exportBtn").innerHTML=ICON.export+"导出";
-  document.getElementById("importBtn").innerHTML=ICON.import+"导入";
+  document.getElementById("exportBtn").innerHTML=ICON.export;
+  document.getElementById("importBtn").innerHTML=ICON.import;
+  /* L4: 窗口控制按钮 */
+  if(window.electronAPI){
+    document.querySelector(".win-min")?.addEventListener("click",()=>window.electronAPI.minimize());
+    document.querySelector(".win-max")?.addEventListener("click",()=>window.electronAPI.maximizeToggle());
+    document.querySelector(".win-close")?.addEventListener("click",()=>window.electronAPI.closeWindow());
+  }
   document.getElementById("libImportBtn").innerHTML=ICON.plus;
   document.getElementById("newProjectBtn").innerHTML=ICON.plus;
   document.getElementById("newCanvasBtn").innerHTML=ICON.plus;
@@ -990,7 +1000,7 @@ const modal=document.getElementById("modal");
 var _modalFocusTimer=null;
 function showModal(title,bodyHtml,actions){
   const box=modal.querySelector(".modal-box");
-  box.style.width=""; /* reset：showSettings 设的 680px 固定宽不残留到其他弹窗（如退出确认） */
+  box.style.width="";box.style.removeProperty("background");box.style.removeProperty("backdrop-filter");box.style.removeProperty("-webkit-backdrop-filter"); /* reset：showSettings 设的 inline(!important) 不残留到其他弹窗 */
   const titleEl=box.querySelector(".modal-title");
   titleEl.textContent=title;
   titleEl.style.display=title?"":"none";  /* G11: 空标题时隐藏，避免多余间距 */
@@ -1391,7 +1401,9 @@ function init(){
     L1Storage.block();toast("存档未能载入，已停止覆盖保存："+e.message);console.error("init error:",e);
     try{renderSidePanel();render();}catch(_){}
   }).finally(function(){
-    dismissSplash();
+    /* L3: splash 延迟关闭，遮盖附件预览异步加载——init 完成时 previewOpen 的附件还在异步渲染，
+       固定 1500ms 给大画布(如商业航天)预览加载时间；小画布无感多等 1.5s */
+    setTimeout(dismissSplash,1500);
   });
   window.addEventListener("resize",resize);
   /* G3: 可配置自动保存间隔 */
@@ -1521,6 +1533,10 @@ function showSettings(){
   /* E10: 白天模式强制不透明白底 + 关掉毛玻璃模糊，用 !important 覆盖 CSS */
   if(!state.dark){
     box.style.setProperty("background","rgba(255,255,255,.98)","important");
+    box.style.setProperty("backdrop-filter","none","important");
+    box.style.setProperty("-webkit-backdrop-filter","none","important");
+  }else{
+    box.style.setProperty("background","rgba(28,28,30,.98)","important");
     box.style.setProperty("backdrop-filter","none","important");
     box.style.setProperty("-webkit-backdrop-filter","none","important");
   }

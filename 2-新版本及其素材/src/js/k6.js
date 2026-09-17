@@ -168,7 +168,7 @@ function inspectRelations(project){
       if(i.jumpTo){const ref=typeof i.jumpTo==="string"?{canvasId:i.jumpTo}:i.jumpTo;const p=state.projects.find(p=>p.id===(ref.projectId||project.id)),target=p?.canvases.find(b=>b.id===ref.canvasId);if(!target||(ref.itemId&&!target.items.some(n=>n.id===ref.itemId)))add("跃迁目标已不存在",i);}
       const seen=new Set([i.id]);let ancestor=i;while(ancestor?.parentId){if(seen.has(ancestor.parentId)){add("父子关系存在循环",i);break;}seen.add(ancestor.parentId);ancestor=ids.get(ancestor.parentId);}
     }
-    for(const i of c.items)if(["mindNode","note","fileCard"].includes(i.type)&&!connected.has(i.id))add("未连接的元素（可按需保留）",i);
+    for(const i of c.items)if(i.type==="mindNode"&&!connected.has(i.id))add("未连接的元素（可按需保留）",i);
   }
   return issues;
 }

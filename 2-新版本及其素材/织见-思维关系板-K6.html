@@ -78,11 +78,16 @@
   </div>
   <div class="sep"></div>
   <!-- 数据区 -->
-  <button id="exportBtn">导出</button>
-  <button id="importBtn">导入</button>
+  <button id="exportBtn" title="导出"></button>
+  <button id="importBtn" title="导入"></button>
   <input type="file" id="fileInput" multiple style="display:none">
-  <!-- directory 作为 webkitdirectory 的兼容别名；两者同时保留，确保桌面内嵌浏览器返回完整目录清单。 -->
   <input type="file" id="folderInput" webkitdirectory directory multiple style="display:none">
+  <!-- L4: 自定义窗口控制按钮（红蓝绿，对应 logo 三色） -->
+  <div class="win-controls">
+    <button class="win-btn win-min" title="最小化" aria-label="最小化"><svg viewBox="0 0 24 24"><path d="M5 12h14"/></svg></button>
+    <button class="win-btn win-max" title="最大化" aria-label="最大化"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg></button>
+    <button class="win-btn win-close" title="关闭" aria-label="关闭"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+  </div>
 </header>
 <div id="menuDrop"></div>
 
@@ -109,7 +114,7 @@
   <div class="brand-footer">
     <img class="bf-cn" alt="织见">
     <div class="bf-info">
-      <span class="bf-ver">L1.5d</span>
+      <span class="bf-ver">L4</span>
       <span class="bf-slogan">织连万象，见聚一隅</span>
     </div>
     <button class="bf-settings" type="button" title="设置" aria-label="设置"></button>
@@ -216,7 +221,12 @@
 <script src="src/js/package-model.js"></script>
 <script src="src/js/state.js"></script>
 <script src="src/js/k7-performance.js"></script>
-<script src="src/js/render.js"></script>
+<script src="src/js/render-core.js"></script>
+<script src="src/js/render-mind.js"></script>
+<script src="src/js/render-card.js"></script>
+<script src="src/js/render-connection.js"></script>
+<script src="src/js/render-export.js"></script>
+<script src="src/js/render-camera.js"></script>
 <script src="src/js/editors.js"></script>
 <script src="src/js/layout.js"></script>
 <script src="src/js/interaction.js"></script>
