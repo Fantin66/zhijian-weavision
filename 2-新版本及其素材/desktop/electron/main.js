@@ -159,20 +159,8 @@ function installFantinSkill() {
     if (!fs.existsSync(skillSrc)) return;
     var homeDir = app.getPath("home");
     var skillDst = path.join(homeDir, ".agents", "skills", "zhijian-ai");
-    /* 已安装则跳过（用户可能手动修改过） */
-    if (fs.existsSync(path.join(skillDst, "SKILL.md"))) return;
-    /* 递归复制 */
-    function copyDir(src, dst) {
-      if (!fs.existsSync(dst)) fs.mkdirSync(dst, { recursive: true });
-      for (var entry of fs.readdirSync(src, { withFileTypes: true })) {
-        var sp = path.join(src, entry.name);
-        var dp = path.join(dst, entry.name);
-        if (entry.isDirectory()) copyDir(sp, dp);
-        else fs.copyFileSync(sp, dp);
-      }
-    }
-    copyDir(skillSrc, skillDst);
-    console.log("fantin-report skill installed to", skillDst);
+    const result=require('./skill-install').installSkill(skillSrc,skillDst);
+    console.log('L1 AI skill update:',JSON.stringify(result));
   } catch (e) {
     console.error("skill install failed:", e.message);
   }
@@ -360,6 +348,7 @@ function safeJoin(root, sub) {
 }
 
 require("./package-ipc").install({ipcMain,dialog,app,getWindow:()=>win});
+require("./package-stream").install({ipcMain,dialog,app,getWindow:()=>win});
 
 /* ===== 自动保存到文件系统 ===== */
 // I5-fix: save-to-file 死通道删除（持久化实际走 localStorage/IndexedDB + .fantin 导出）

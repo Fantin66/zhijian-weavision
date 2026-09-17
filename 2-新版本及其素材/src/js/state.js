@@ -152,21 +152,21 @@ function createProject(name){
 }
 async function deleteProject(id){
   const proj=state.projects.find(p=>p.id===id);
-  if(proj&&proj.isBuiltin){toast("内置项目不可删除，可使用「重置学堂」恢复初始状态");return;}
-  if(state.projects.length<=1){toast("至少保留一个项目");return;}
-  const idx=state.projects.findIndex(p=>p.id===id);if(idx<0)return;
-  /* C2 修复：删除项目时撤销该项目所有文件的缓存 Object URL。 */
+  if(proj&&proj.isBuiltin){toast("内置项目不可删除，可使用「重置学堂」恢复初始状态");return false;}
+  if(state.projects.length<=1){toast("至少保留一个项目");return false;}
+  const idx=state.projects.findIndex(p=>p.id===id);if(idx<0)return false;
+  /* Delete only after a durable recovery point exists. */
   const proj2=state.projects[idx];
-  if(proj2&&proj2.files){for(const f of proj2.files){if(f._url){try{URL.revokeObjectURL(f._url);}catch(e){}f._url=null;}}}
-  if(!await queueRecovery("删除项目："+proj2.name))return;
+  if(!await queueRecovery("删除项目："+proj2.name))return false;
   state.projects=state.projects.filter(p=>p.id!==id);
   const np=state.projects[0];
   state.activeProjectId=np.id;
   state.activeCanvasId=np.canvases[0].id;
   resetTransientState();
-  renderSidePanel();render();saveStateDebounced();syncPvDom();
+  renderSidePanel();render();saveStateDebounced();syncPvDom();return true;
 }
 function switchProject(id){
+  if(typeof L1Search!=="undefined")L1Search.clearPreview();
   saveCurrentCanvas();
   state.activeProjectId=id;
   const p=curProject();
@@ -184,16 +184,17 @@ function createCanvas(name){
   return c;
 }
 async function deleteCanvas(id){
-  const p=curProject();if(!p)return;
-  if(p.canvases.length<=1){toast("至少保留一张画布");return;}
-  if(!await queueRecovery("删除画布："+(p.canvases.find(c=>c.id===id)?.name||"画布")))return;
+  const p=curProject();if(!p||!p.canvases.some(c=>c.id===id))return false;
+  if(p.canvases.length<=1){toast("至少保留一张画布");return false;}
+  if(!await queueRecovery("删除画布："+(p.canvases.find(c=>c.id===id)?.name||"画布")))return false;
   p.canvases=p.canvases.filter(c=>c.id!==id);
   cleanupProjectReferences();
   state.activeCanvasId=p.canvases[0].id;
   state.selected=null;
-  renderSidePanel();render();saveStateDebounced();syncPvDom();
+  renderSidePanel();render();saveStateDebounced();syncPvDom();return true;
 }
 function switchCanvas(id){
+  if(typeof L1Search!=="undefined")L1Search.clearPreview();
   saveCurrentCanvas();
   state.activeCanvasId=id;
   resetTransientState();
@@ -387,10 +388,19 @@ function zoomAt(sx,sy,factor){
 function fitAll(){
   const b=boundsOfItems();if(!b) return;
   const pad=80;
-  const z=clamp(Math.min((W-pad*2)/Math.max(1,b.w),(H-pad*2)/Math.max(1,b.h)),0.15,1.6);
-  const tx=b.x-(W/z-b.w)/2;
-  const ty=b.y-(H/z-b.h)/2;
-  animateCamera(tx,ty,z);
+  /* L1.5d: 只 clear/glass 画布全屏铺底才排除上栏左栏；其他样式 board 已退在左栏右，W/H 本就排除，不重复排除 */
+  if(state.stylePreset==="glass"||state.stylePreset==="clear"){
+    const sw=state.sideCollapsed?0:270,th=52;
+    const z=clamp(Math.min(((W-sw)-pad*2)/Math.max(1,b.w),((H-th)-pad*2)/Math.max(1,b.h)),0.15,1.6);
+    const tx=b.x-(((W+sw)/z-b.w)/2);
+    const ty=b.y-(((H+th)/z-b.h)/2);
+    animateCamera(tx,ty,z);
+  }else{
+    const z=clamp(Math.min((W-pad*2)/Math.max(1,b.w),(H-pad*2)/Math.max(1,b.h)),0.15,1.6);
+    const tx=b.x-((W/z-b.w)/2);
+    const ty=b.y-((H/z-b.h)/2);
+    animateCamera(tx,ty,z);
+  }
 }
 function boundsOfItems(){
   let b=null;

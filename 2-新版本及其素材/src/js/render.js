@@ -2,10 +2,10 @@
 /* C4 Neumorphism */
 function neumorphPath(c,x,y,w,h,r){roundRectPath(c,x,y,w,h,r);}
 function drawNeumorph(c,x,y,w,h,r,sel,dark,bgColor){
-  const z=state.camera.zoom;const off=6/z,blur=22/z;
+  const z=state.camera.zoom;const off=5/z,blur=15/z;
   const surface=dark?"#2e2e34":"#f2f3f6";
-  const ls=dark?"rgba(0,0,0,.15)":"rgba(255,255,255,.95)";
-  const ds=dark?"rgba(0,0,0,.5)":"rgba(28,42,74,.14)";
+  const ls=dark?"rgba(0,0,0,.1)":"rgba(255,255,255,.85)";
+  const ds=dark?"rgba(0,0,0,.28)":"rgba(28,42,74,.1)";
   if(sel){
     c.save();c.shadowColor=ds;c.shadowOffsetX=-off;c.shadowOffsetY=-off;c.shadowBlur=blur;neumorphPath(c,x,y,w,h,r);c.fillStyle=surface;c.fill();c.restore();
     c.save();c.shadowColor=ls;c.shadowOffsetX=off;c.shadowOffsetY=off;c.shadowBlur=blur;neumorphPath(c,x,y,w,h,r);c.fillStyle=surface;c.fill();c.restore();
@@ -389,7 +389,7 @@ function syncPvContentZoom(el,pv,z){
 /* ============================================================
    左热区/Dock 相关同步（保留原 syncMorphDom）
 ============================================================ */
-function previewInteractionActive(){return !!(state._camInteracting||(drag&&drag.previewMoved&&drag.mode==="pan"));}
+function previewInteractionActive(){return !!(state._camInteracting||(drag&&drag.previewMoved));}
 function syncPausedPreviewGeometry(){
   const z=state.camera.zoom,items=new Map(state.items.map(i=>[String(i.id),i]));
   for(const [id,m] of morphMap){
@@ -1448,6 +1448,9 @@ function drawMindNode(it,cc){
   const prevAlpha=c.globalAlpha;
   if(SC.neumorph){drawNeumorph(c,b.x,b.y,b.w,b.h,r,sel,state.dark,state.bgColor);}else if(SC.colorful){drawColorful(c,b.x,b.y,b.w,b.h,r,sel,state.dark,it.color);}else if(SC.bento){drawColorful(c,b.x,b.y,b.w,b.h,r,sel,state.dark,it.color);}else if(SC.editorial){drawColorful(c,b.x,b.y,b.w,b.h,r,sel,state.dark,it.color);}else{
   c.save();
+  /* L1.3 LOD: 拖动/相机手势时跳过节点投影（shadowBlur 是 canvas 最贵的操作之一），
+     松手即恢复完整投影——拖动态视觉无损，换流畅。 */
+  if(!previewInteractionActive()){
   if(sel){c.shadowColor="rgba(45,95,211,.4)";c.shadowBlur=14/z;c.shadowOffsetY=2/z;}
   /* 阴影使用冷灰蓝，而不是纯黑。低层节点也保留极浅接触阴影，
      让用户在缩小时仍能一眼识别出"这是一个可操作的框"。 */
@@ -1455,6 +1458,7 @@ function drawMindNode(it,cc){
   else if(depth===1){c.shadowColor="rgba(28,50,94,"+SC.shadowAlpha+")";c.shadowBlur=Math.max(7,SC.shadowBlur-2)/z;c.shadowOffsetY=2/z;}
   else if(depth===2){c.shadowColor="rgba(28,50,94,"+Math.max(.11,SC.shadowAlpha*.72)+")";c.shadowBlur=Math.max(5,SC.shadowBlur-4)/z;c.shadowOffsetY=1.5/z;}
   else{c.shadowColor="rgba(28,50,94,"+Math.max(.07,SC.shadowAlpha*.48)+")";c.shadowBlur=Math.max(3,SC.shadowBlur-6)/z;c.shadowOffsetY=1/z;}
+  }
   /* 同一风格内使用同一轮廓；层级只通过色阶、字号和字重表达，避免一二三级像三套产品。 */
   /* 半透明（玻璃/纸感）：先设置全局 alpha */
   if(SC.nodeAlpha<1)c.globalAlpha=prevAlpha*SC.nodeAlpha;
@@ -1999,8 +2003,11 @@ function drawFileCard(it,cc){
   const fcAlpha=c.globalAlpha;
   if(SC.neumorph){drawNeumorph(c,b.x,b.y,b.w,b.h,SC.radius,sel,state.dark,state.bgColor);}else if(SC.colorful){drawColorful(c,b.x,b.y,b.w,b.h,SC.radius,sel,state.dark,"#ffffff");}else if(SC.bento){drawColorful(c,b.x,b.y,b.w,b.h,SC.radius,sel,state.dark,"#ffffff");}else if(SC.editorial){drawColorful(c,b.x,b.y,b.w,b.h,SC.radius,sel,state.dark,"#fff8e1");}else{
   c.save();
+  /* L1.3 LOD: 拖动/相机手势时跳过附件卡片投影，松手恢复。 */
+  if(!previewInteractionActive()){
   c.shadowColor=sel?"rgba(45,95,211,.35)":"rgba(0,0,0,"+SC.shadowAlpha+")";
   c.shadowBlur=(sel?12:SC.shadowBlur)/z;c.shadowOffsetY=2/z;
+  }
   if(SC.nodeAlpha<1)c.globalAlpha=fcAlpha*SC.nodeAlpha;
   roundRectPath(c,b.x,b.y,b.w,b.h,SC.radius);
   if(SC.paper){

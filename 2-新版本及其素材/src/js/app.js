@@ -2,7 +2,7 @@
 /* ============================================================
    IndexedDB / 持久化
 ============================================================ */
-const DB_NAME="boardlib",DB_VER=2;
+const DB_NAME="boardlib",DB_VER=3;
 let idb=null,_idleSaveTimer=0,_idleSaveStarted=0;
 /* K7：周期保存不抢占拖动或相机手势；结束后自动补写。 */
 function saveWhenIdle(){
@@ -16,6 +16,7 @@ function openDB(){
     rq.onupgradeneeded=()=>{
       const db=rq.result;
       if(!db.objectStoreNames.contains("files")) db.createObjectStore("files");
+      for(const name of ['l1Projects','l1Meta','l1Recovery','l1RecoveryBlobs','l1Search'])if(!db.objectStoreNames.contains(name))db.createObjectStore(name);
       if(!db.objectStoreNames.contains("recovery"))db.createObjectStore("recovery",{keyPath:"id"});
     };
     rq.onsuccess=()=>{idb=rq.result;idb.onversionchange=()=>{idb.close();idb=null;updateSaveStatus("error");};res();};
@@ -25,29 +26,8 @@ function openDB(){
 }
 function saveState(){
   clearTimeout(_idleSaveTimer);_idleSaveTimer=0;_idleSaveStarted=0;
-  try{
-    const data={
-      projects:state.projects.map(p=>({
-        id:p.id,name:p.name,tutorialVersion:p.tutorialVersion||null,isBuiltin:p.isBuiltin||false,
-        files:p.files.map(f=>({id:f.id,name:f.name,kind:f.kind,size:f.size,mime:f.mime,url:f.url||null,created:f.created,folderId:f.folderId||null})),
-        folders:p.folders.map(f=>({id:f.id,name:f.name,parentId:f.parentId||null})),
-        canvases:p.canvases.map(c=>({id:c.id,name:c.name,items:c.items,camera:c.camera,previews:c.previews||[],links:c.links||[]})),
-      })),
-      activeProjectId:state.activeProjectId,
-      activeCanvasId:state.activeCanvasId,
-      ui:{sideCollapsed:state.sideCollapsed,dark:state.dark,bgPattern:state.bgPattern,bgColorName:state.bgColorName,mindMode:state.mindMode,mindColorMode:state.mindColorMode,layoutType:state.layoutType,fontPreset:state.fontPreset,stylePreset:state.stylePreset,reducedMotion:state.reducedMotion,fantinIcon:state.fantinIcon,autoTheme:state.autoTheme,saveInterval:state.saveInterval,storagePath:state.storagePath,noteColor:state.noteColor,mindColor:state.mindColor},
-      savedAt:Date.now(),
-    };
-    localStorage.setItem("board-state",JSON.stringify(data));
-    updateSaveStatus(pendingWrites.size?"saving":failedWrites.size?"error":"saved");
-    scheduleRecovery(data);
-    return !failedWrites.size;
-  }catch(e){
-    console.warn("save board state failed",e);
-    updateSaveStatus("error");
-    toast("保存失败：本地存储空间不足或被浏览器限制，请导出备份");
-    return false;
-  }
+  if(typeof aiTransactionActive!=="undefined"&&aiTransactionActive)return Promise.resolve(true);
+  return L1Storage.save().then(ok=>{if(ok)scheduleRecovery();return ok;});
 }
 /* H1 任务5: 防抖存档——连续操作只在停顿后序列化一次，削平松手时的 CPU 尖峰。
    关键路径（beforeunload）走立即存档绕过防抖，确保最终状态落盘。 */
@@ -65,18 +45,17 @@ function setupAutoSave(){
 }
 /* I5: 统一版本标签——网页与桌面共用一个来源（桌面端异步取 package.json 版本号，
    修复关于页把 Promise 拼进字符串显示"v[object Promise]"、网页端回退旧标签"G3"的问题） */
-let APP_VERSION="K8.5";
+let APP_VERSION="L1.2";
 if(window.electronAPI&&window.electronAPI.getVersion){
   try{window.electronAPI.getVersion().then(function(v){if(v)APP_VERSION="v"+v;}).catch(function(){});}catch(e){}
 }
-function loadState(){
+function loadState(archive){
   try{
-    const raw=localStorage.getItem("board-state");
-    if(!raw) return false;
-    const d=JSON.parse(raw);
+    if(!archive) return false;
+    const d=archive;
     if(d.projects&&d.projects.length){
       state.projects=d.projects.map(p=>({
-        ...p,
+        ...p,folders:p.folders||[],readingPaths:p.readingPaths||[],
         files:(p.files||[]).map(f=>({...f,thumb:null,tw:1,th:1})),
         canvases:(p.canvases||[]).map(c=>({...c,items:c.items||[],camera:c.camera||{x:0,y:0,zoom:1},previews:c.previews||[],links:c.links||[]})),
       }));
@@ -127,7 +106,7 @@ function loadState(){
     /* 强制刷新一次 bgColor（确保和 bgColorName 一致） */
     state.bgColor=getBgColor(state.bgColorName,state.dark);
     applyTheme();
-    applyFontPreset();
+    applyFontPreset();applyUIFont();
     cleanupProjectReferences();
     syncUid();
     return true;
@@ -263,7 +242,7 @@ function drawStatusHUD(){
   ctx.font="500 11px "+FONT;
   ctx.textBaseline="alphabetic";
   ctx.textAlign="left";
-  const x=14,y=H-14,sep=16;
+  const hudDX=(state.stylePreset==="glass"||state.stylePreset==="clear")&&!state.sideCollapsed?270:0;const x=14+hudDX,y=H-14,sep=16;
   let cx=x,rects=[];
   ctx.shadowColor=light?"rgba(0,0,0,.32)":"rgba(0,0,0,.55)";
   ctx.shadowBlur=4;ctx.shadowOffsetY=1;
@@ -360,6 +339,12 @@ function applyFontPreset(){
   }
   const preset=FONT_PRESETS[state.fontPreset]||FONT_PRESETS.serif;
   FONT=preset.stack;
+}
+function applyUIFont(){
+  const m=localStorage.getItem("zhijian-ui-font")||"yahei";
+  const stacks={yahei:'"Noto Sans SC","Microsoft YaHei UI","PingFang SC",sans-serif',serif:'"Noto Serif SC","SimSun","Songti SC",serif',kai:'"Noto Serif SC","KaiTi","楷体","STKaiti",serif'};
+  document.documentElement.style.setProperty("--font",stacks[m]||stacks.yahei);
+  document.documentElement.style.setProperty("--brand-font",stacks[m]||stacks.yahei);
 }
 /* 整体样式切换：仅切换画布视觉风格；画布字体内在联动（可被后续独立切换覆盖）
    —— paper 拟物自动切手写字体（节点/便签/连线质感一致）
@@ -549,8 +534,8 @@ document.addEventListener("keydown",e=>{
     if(e.key==="ArrowLeft"){e.preventDefault();promoteNode();return;}
     if(e.key==="ArrowRight"){e.preventDefault();demoteNode();return;}
   }
-  /* Shift+方向键：空间导航到最近节点 */
-  if(e.shiftKey&&!e.ctrlKey&&!e.altKey&&!isTyping()){
+  /* 方向键：空间导航到最近节点（纯方向键或 Shift+方向键均可；Alt+方向键仍为排序/提级） */
+  if(!e.ctrlKey&&!e.altKey&&!isTyping()&&(e.key==="ArrowUp"||e.key==="ArrowDown"||e.key==="ArrowLeft"||e.key==="ArrowRight")){
     const dirs={ArrowUp:{x:0,y:-1},ArrowDown:{x:0,y:1},ArrowLeft:{x:-1,y:0},ArrowRight:{x:1,y:0}};
     const d=dirs[e.key];
     if(d){
@@ -573,7 +558,7 @@ document.addEventListener("keydown",e=>{
         const dist=Math.hypot(dx,dy);
         if(dist<bestDist){bestDist=dist;best=it;}
       }
-      if(best){state.selected=best.id;state.multiSel=[];render();updateSelBar();}
+      if(best){state.selected=best.id;state.multiSel=[];render();updateSelBar();const bb=itemBounds(best);if(bb){const z=state.camera.zoom,full=state.stylePreset==="glass"||state.stylePreset==="clear",sw=full&&!state.sideCollapsed?270:0,th=full?52:0,ox=sw/z,oy=th/z,vw=(W-sw)/z,vh=(H-th)/z,cx=bb.x+bb.w/2,cy=bb.y+bb.h/2,rx=cx-state.camera.x-ox,ry=cy-state.camera.y-oy,m=0.25,s=0.3;let nx=state.camera.x,ny=state.camera.y;if(rx<vw*m)nx=cx-ox-vw*s;else if(vw-rx<vw*m)nx=cx-ox-vw*(1-s);if(ry<vh*m)ny=cy-oy-vh*s;else if(vh-ry<vh*m)ny=cy-oy-vh*(1-s);if(nx!==state.camera.x||ny!==state.camera.y)animateCamera(nx,ny,z);}}
       return;
     }
   }
@@ -719,7 +704,7 @@ function mountControls(){
     if(helpPop.style.display==="block"){
       const r=e.currentTarget.getBoundingClientRect();
       helpPop.style.right="44px";
-      helpPop.style.top="40px";
+      helpPop.style.top=((state.stylePreset==="glass"||state.stylePreset==="clear")?"92px":"40px");
     }
   });
   document.getElementById("bgBtn").addEventListener("click",()=>{
@@ -900,7 +885,7 @@ function mountControls(){
     menuDrop.style.top=(r.bottom+4)+"px";
     menuDrop.classList.add("show");
   }
-  function hideMenuDrop(){menuDrop.classList.remove("show");}
+  function hideMenuDrop(){menuDrop.classList.remove("show");document.querySelectorAll(".menu-tab").forEach(t=>t.classList.remove("active"));}
   document.querySelectorAll(".menu-tab").forEach(tab=>{
     tab.addEventListener("click",e=>{
       e.stopPropagation();
@@ -922,107 +907,7 @@ function mountControls(){
 /* ============================================================
    全局搜索（Ctrl+F / 顶栏输入框）
 ============================================================ */
-function mountSearch(){
-  const input=document.getElementById("searchInput");
-  const wrap=document.getElementById("searchWrap");
-  const resBox=document.getElementById("searchResults");
-  const cnt=document.getElementById("searchCount");
-
-  function itemLabel(it){
-    if(it.type==="mindNode") return it.text||"(空)";
-    if(it.type==="note") return it.text||"" ;
-    if(it.type==="fileCard"){
-      const f=state.files.find(x=>x.id===it.fileId);
-      return f?f.name:"材料";
-    }
-    return "";
-  }
-  function itemTypeLabel(it){
-    return it.type==="mindNode"?"节点":it.type==="note"?"便签":it.type==="fileCard"?"材料":"图形";
-  }
-  function runSearch(){
-    const q=input.value.trim().toLowerCase();
-    if(!q){ state.search=null; resBox.style.display="none"; cnt.textContent=""; hideSearchHighlights(); render(); return; }
-    const results=[];
-    for(const it of state.items){
-      const label=itemLabel(it);
-      if(label.toLowerCase().includes(q)||(it.detail||"").toLowerCase().includes(q)){
-        results.push(it.id);
-      }
-    }
-    state.search={q,results:results,idx:results.length?0:-1};
-    renderResults();
-    if(results.length){highlightResults();gotoResult(0);}
-    else render();
-  }
-  function renderResults(){
-    const s=state.search;
-    if(!s){resBox.style.display="none";cnt.textContent="";return;}
-    cnt.textContent=s.results.length?s.results.length+" 条":"0";
-    resBox.innerHTML="";
-    if(!s.results.length){
-      const e=document.createElement("div");e.className="sr-empty";e.textContent="无匹配结果";
-      resBox.appendChild(e);resBox.style.display="block";
-      return;
-    }
-    const maxShow=30;
-    s.results.slice(0,maxShow).forEach((id,i)=>{
-      const it=state.items.find(x=>x.id===id);
-      if(!it) return;
-      const row=document.createElement("div");
-      row.className="sr-item"+(i===s.idx?" sr-active":"");
-      row.innerHTML='<span class="sr-type">'+itemTypeLabel(it)+'</span><span class="sr-txt"></span>';
-      row.querySelector(".sr-txt").textContent=itemLabel(it);
-      row.addEventListener("mousedown",e=>{e.preventDefault();gotoResult(i);});
-      resBox.appendChild(row);
-    });
-    resBox.style.display="block";
-  }
-  function gotoResult(i){
-    const s=state.search;
-    if(!s||i<0||i>=s.results.length) return;
-    s.idx=i;
-    const id=s.results[i];
-    const it=state.items.find(x=>x.id===id);
-    if(it){
-      const b=itemBounds(it);
-      if(b){
-        state.camera.x=b.x+b.w/2-W/state.camera.zoom/2;
-        state.camera.y=b.y+b.h/2-H/state.camera.zoom/2;
-      }
-      state.selected=id;
-    }
-    highlightResults();
-    renderResults();
-    render();
-  }
-  function highlightResults(){
-    const s=state.search;
-    if(!s) return;
-    state._hlIds=s.results;
-    requestRender();
-  }
-  function hideSearchHighlights(){ state._hlIds=null; }
-
-  input.addEventListener("input",runSearch);
-  input.addEventListener("focus",()=>{if(state.search)renderResults();});
-  input.addEventListener("keydown",e=>{
-    if(e.key==="Escape"){input.blur();resBox.style.display="none";hideSearchHighlights();render();}
-    if(e.key==="Enter"||e.key==="ArrowDown"){e.preventDefault();const s=state.search;if(s)gotoResult(Math.min(s.idx+1,s.results.length-1));}
-    if(e.key==="ArrowUp"){e.preventDefault();const s=state.search;if(s)gotoResult(Math.max(s.idx-1,0));}
-    e.stopPropagation();
-  });
-  document.addEventListener("keydown",e=>{
-    if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==="f"){
-      e.preventDefault();
-      input.focus();input.select();
-    }
-  });
-  /* 点击外部关闭 */
-  document.addEventListener("pointerdown",e=>{
-    if(!wrap.contains(e.target)){resBox.style.display="none";hideSearchHighlights();render();}
-  });
-}
+function mountSearch(){L1Search.bind();}
 
 /* E5: Float menu — positioned next to anchor element, not at cursor */
 const floatMenu=document.getElementById("floatMenu");
@@ -1138,7 +1023,7 @@ function hideModal(){
   if(_modalFocusTimer){clearTimeout(_modalFocusTimer);_modalFocusTimer=null;}
   var ae=document.activeElement;
   if(ae&&modal.contains(ae))ae.blur();
-  modal.classList.remove("show");
+  modal.classList.remove("show");modal.dispatchEvent(new Event("zhijian-modal-close"));
 }
 modal.addEventListener("click",e=>{if(e.target===modal)hideModal();});
 /* 选项弹层 */
@@ -1477,9 +1362,11 @@ function init(){
       ensureCdn("slide").catch(function(){});
     }
   },200);
-  openDB().then(()=>{
+  openDB().then(async()=>{
     const resetForTest=SIMPLE_TEST_MODE&&resetLocalArchiveForSimpleTest();
-    const has=resetForTest?false:loadState();
+    const archive=resetForTest?null:await L1Storage.load();
+    const has=archive?loadState(archive):false;
+    if(archive&&!has){L1Storage.block();throw new Error("存档加载失败，已停止覆盖保存");}
     initK6();setupAutoSave();
     /* G4 fix: loadState 后重新 applyTheme，确保 autoTheme 生效 */
     applyTheme();
@@ -1501,7 +1388,7 @@ function init(){
     renderSidePanel();
     render();
   }).catch(function(e){
-    console.error("init error:",e);
+    L1Storage.block();toast("存档未能载入，已停止覆盖保存："+e.message);console.error("init error:",e);
     try{renderSidePanel();render();}catch(_){}
   }).finally(function(){
     dismissSplash();
@@ -1602,7 +1489,7 @@ function showLicenseModal(isFirstRun){
   overlay.appendChild(box);
   document.body.appendChild(overlay);
 }
-init();
+window.addEventListener("DOMContentLoaded",init,{once:true});
 /* G1: 启动动画 — 尽早设置 Logo src，在 init 之前就显示 */
 (function(){
   var sl=parseInt(localStorage.getItem("zhijian-logo"))||3;
@@ -1738,8 +1625,10 @@ function renderSettingsContent(catId,content){
       '<div style="display:flex;gap:12px">'+
       [1,2,3].map(function(n){var on=(state.fantinIcon||2)===n;return '<div class="fantinIconBtn" data-n="'+n+'" style="flex:1;cursor:pointer;padding:12px;border:2px solid '+(on?"var(--accent)":"var(--card-border)")+';border-radius:12px;text-align:center;transition:all .15s ease"><img src="src/assets/icons/fantin-'+n+'.ico" style="width:48px;height:48px;object-fit:contain;margin-bottom:8px"><div style="font-size:11px;font-weight:600;color:'+(on?"var(--accent)":"var(--ink-dim)")+'">第'+n+'张</div></div>';}).join("")+
       '</div><div style="font-size:11px;color:var(--ink-faint);margin-top:6px">点击即实时生效（写注册表 + 刷新缓存，无需重装）</div></div>'+
-      '<div style="margin-bottom:20px"><div style="font-size:12px;color:var(--ink-dim);margin-bottom:8px">样式与字体</div>'+
-      '<div style="font-size:12px;color:var(--ink-faint)">关闭设置后，可在顶部「样式」和「字体」菜单中调整。</div></div>';
+      '<div style="margin-bottom:20px"><div style="font-size:12px;color:var(--ink-dim);margin-bottom:8px">UI 外观字体</div>'+
+      '<div style="display:flex;gap:8px" id="uiFontChoices"></div>'+
+      '<div style="font-size:11px;color:var(--ink-faint);margin-top:4px">界面雅黑 / 书卷宋体 / 手写楷体</div></div>'+
+      '<div style="margin-bottom:20px"><div style="font-size:12px;color:var(--ink-faint)">更多字体可在顶部「字体」菜单调整。</div></div>';
     var choices=content.querySelector("#logoChoices");
     for(var n=1;n<=3;n++)(function(num){
       var preset=LOGO_PRESETS[num];var isDark=document.documentElement.getAttribute("data-theme")==="dark";
@@ -1749,6 +1638,16 @@ function renderSettingsContent(catId,content){
       item.onclick=function(){applyLogo(num,true);showSettings();};
       choices.appendChild(item);
     })(n);
+    var uiFontChoices=content.querySelector("#uiFontChoices");
+    if(uiFontChoices)[["yahei","界面雅黑"],["serif","书卷宋体"],["kai","手写楷体"]].forEach(function(f){
+      var cur=localStorage.getItem("zhijian-ui-font")||"yahei";
+      var on=cur===f[0];
+      var b=document.createElement("button");
+      b.style.cssText="flex:1;padding:8px 14px;border:1px solid "+(on?"var(--accent)":"var(--card-border)")+";border-radius:8px;background:"+(on?"var(--accent-soft)":"var(--surface)")+";color:"+(on?"var(--accent)":"var(--ink)")+";cursor:pointer;font:600 12px var(--font)";
+      b.textContent=f[1];
+      b.onclick=function(){localStorage.setItem("zhijian-ui-font",f[0]);applyUIFont();showSettings();};
+      uiFontChoices.appendChild(b);
+    });
     /* G11: 任务栏图标风格 — 仅桌面模式显示 */
     var iconStyleSec=content.querySelector("#iconStyleSection");
     if(window.electronAPI&&iconStyleSec){
@@ -1830,7 +1729,9 @@ function renderSettingsContent(catId,content){
       ["沉浸模式","F11 / Alt+F",""],
       ["全屏","Alt+Enter","原生窗口全屏"],
       ["跃迁到画布","J",""],
-      ["搜索","Ctrl+F",""],
+      ["搜索元素","Ctrl+F","标题和展开详情"],
+      ["搜索便签与批注","Ctrl+Shift+F",""],
+      ["搜索附件","Ctrl+Alt+F","附件正文与名称"],
       ["","",""],
       ["画布","",""],
       ["平移","空白拖动 / 空格+拖",""],
@@ -1850,52 +1751,21 @@ function renderSettingsContent(catId,content){
     content.innerHTML=
       '<h4 style="margin:0 0 16px;font-size:14px">AI 设置</h4>'+
       '<div style="margin-bottom:20px"><div style="font-size:12px;color:var(--ink-dim);margin-bottom:6px">AI 完整指引</div>'+
-      '<div style="font-size:12px;color:var(--ink);margin-bottom:8px">导出完整 AI 指引文档，包含两部分：(1) 操作画布——ZhijianAI 37 个命令接口；(2) 读取 .fantin 文件——解析脚本 + 报告生成工作流。导出后连同 .fantin 文件发给任意 AI agent 即可。</div>'+
+      '<div style="font-size:12px;color:var(--ink);margin-bottom:8px">导出完整 AI 指引文档，包含两部分：(1) 操作画布——ZhijianAI 操作接口；(2) 读取 .fantin 文件——解析脚本 + 报告生成工作流。导出后连同 .fantin 文件发给任意 AI agent 即可。</div>'+
       '<div style="display:flex;gap:8px;flex-wrap:wrap">'+
       '<button id="exportAISkill" style="padding:8px 16px;border:1px solid var(--accent);border-radius:8px;background:var(--accent-soft);color:var(--accent);cursor:pointer;font:600 12px var(--font)">导出完整指引</button>'+
       '<button id="copyReportGuide" style="padding:8px 16px;border:1px solid var(--card-border);border-radius:8px;background:var(--surface);color:var(--ink);cursor:pointer;font:600 12px var(--font)">复制报告指引到剪贴板</button>'+
       '</div></div>'+
       '<div style="margin-bottom:20px"><div style="font-size:12px;color:var(--ink-dim);margin-bottom:6px">AI 接口</div>'+
-      '<div style="font-size:12px;color:var(--ink)">当前接口：ZhijianAI v1.3（37 个操作，支持批量+回滚+形变控制）</div>'+
+      '<div style="font-size:12px;color:var(--ink)">当前接口：ZhijianAI v2.0（异步保存确认、批量回滚、能力查询和重试防重）</div>'+
       '</div>'+
       '<div style="margin-bottom:20px"><div style="font-size:12px;color:var(--ink-dim);margin-bottom:6px">未来功能（预留）</div>'+
       '<div style="font-size:11px;color:var(--ink-faint)">· 自主建图（AI 自主构建思维关系板）<br>· 关系类型自动标注<br>· 投资建议书一键导出<br>· 多模型接入配置</div></div>';
     var eb=content.querySelector("#exportAISkill");
-    /* K2: 报告生成指引 + 解析脚本（导出和复制共用） */
-    var PARSE_SCRIPT='#!/usr/bin/env node\nconst fs=require("fs");const d=JSON.parse(fs.readFileSync(process.argv[2],"utf8"));\nfunction nm(it,fm){if(it.type==="fileCard"&&it.fileId){var f=fm.find(function(m){return m.oldId===it.fileId});return"[附件] "+(f?f.name:"未知")}\nif(it.type==="note")return"[便签] "+(it.text||"").slice(0,40);return it.text||"(空)"}\nfunction tree(items,fm,nameMap,item,depth){var pad="  ".repeat(depth);var line=pad+(nameMap[item.id]||"(空)");\nif(item.annotation)line+=" //批注："+item.annotation;if(item.detail)line+=" [展开"+item.detail.length+"字]";console.log(line);\nitems.filter(function(i){return i.parentId===item.id}).forEach(function(c){tree(items,fm,nameMap,c,depth+1)})}\nconsole.log("=== 项目："+d.projectName+" ===");\nfor(var c of d.canvases){var items=c.items||[],links=c.links||[];var fm=d.fileMeta||[];\nvar nameMap={};items.forEach(function(it){nameMap[it.id]=nm(it,fm)});\nconsole.log("\\n--- 画布："+c.name+"（"+items.length+"元素 "+links.length+"连线）---");\nconsole.log("\\n[层级结构]");\nitems.filter(function(i){return !i.parentId||!items.some(function(p){return p.id===i.parentId})}).forEach(function(r){tree(items,fm,nameMap,r,0)});\nif(links.length){console.log("\\n[语义连线]");links.forEach(function(l){console.log((nameMap[l.aId]||l.aId).slice(0,40)+" --["+l.relationType+"]--> "+(nameMap[l.bId]||l.bId).slice(0,40)+(l.annotation?" //"+l.annotation:""))})}\nvar ann=items.filter(function(i){return i.annotation});if(ann.length){console.log("\\n[批注]");ann.forEach(function(i){console.log((nameMap[i.id]||i.id)+"："+i.annotation)})}\nvar notes=items.filter(function(i){return i.type==="note"});if(notes.length){console.log("\\n[便签]");notes.forEach(function(n){console.log(n.text)})}}\nif(d.fileMeta&&d.fileMeta.length){console.log("\\n[附件清单]");d.fileMeta.forEach(function(f,i){console.log((i+1)+". "+f.name+" ("+(f.kind||"unknown")+")")})}';
-    var reportGuide="\n\n---\n\n## 二、AI 读取 .fantin 生成报告\n\n### 素材边界铁律\n\n可联网查资料以辅助理解 .fantin 文件中的概念和关系，但报告的最终内容必须且只能来自 data.json 和附件原文。外部知识仅用于辅助理解，不可写入报告。每条数据、结论都标注来源。\n\n### 工作流程\n\n1. 解压 .fantin（ZIP 格式）：unzip xxx.fantin -d /tmp/fantin/\n2. 读 data.json（画布关系结构：节点、连线、层级、批注）\n3. 运行解析脚本（见下方），输出 AI 友好的关系网络文本\n4. 读 attachments/ 目录下所有 .md 文件全文\n5. 二进制附件（docx/xlsx/png）尝试转换读取，读不了用文件名标注\n6. 按关系网络层级组织报告，引用处加超链接和来源标注\n7. 报告保存到解压目录，超链接用相对路径 attachments/packageName；旧版无 packageName 时回退到 name\n\n### 数据来源标注格式\n\n> 数据来源：[附件名](attachments/附件名.md)\n> 画布批注：批注内容\n> 画布便签：便签内容\n\n### 关系类型对照\n\nrelated=关联 / supports=支撑 / causes=导致 / contradicts=反证 / evidence=证据\n\nparentId 构成层级树（不在 links 里），links 是跨层级语义连线，fileCard 的 fileId 指向 fileMeta 获取文件名。三种关系系统都要在报告中体现。\n\n### 解析脚本\n\n将以下脚本保存为 parse-fantin.js，运行 node parse-fantin.js data.json：\n\n~~~js\n"+PARSE_SCRIPT+"\n~~~\n\n### 报告要求\n\n- 全部元素都要用上（每个节点、附件、便签、批注）\n- 按层级树组织章节（根节点→章，子节点→节）\n- 语义连线在对应章节标注元素间关系\n- 附件内容填入对应章节，引用处加超链接\n- 报告末尾加附录：全部附件索引表\n";
+    var reportGuide=ZHIJIAN_AI_GUIDE.report;
     if(eb)eb.onclick=function(){
-      /* G3: 生成 AI Skill 文件并下载 */
-      var stylesStr="";
-      Object.keys(STYLE_PRESETS).forEach(function(k){stylesStr+="- `"+k+"`："+STYLE_PRESETS[k].label+"（"+STYLE_PRESETS[k].desc+"）\n";});
-      var skill="# 织见 AI 接口 (ZhijianAI v"+(window.ZhijianAI?window.ZhijianAI.version:"1.3")+")\n\n";
-      skill+="织见（Weavision）是一款\"就地形变\"思维关系板。页面加载后提供 `window.ZhijianAI`，AI 可通过它操作画布、构建思维关系板。\n\n";
-      skill+="## 调用方式\n\n~~~js\nconst snap = window.ZhijianAI.snapshot();           // 获取当前状态快照\nconst result = window.ZhijianAI.execute({ op: \"create_node\", title: \"新节点\" });  // 执行命令\nconst built = window.ZhijianAI.buildCanvas(plan);    // 从计划批量构建画布\n// result = { ok: true, value: {...} } 或 { ok: false, error: \"...\" }\n~~~\n\n";
-      skill+="接口仅在页面自身 JavaScript 上下文中可用（同页调用，不跨域）。\n\n";
-      skill+="## 操作边界\n\n- 只通过 `execute()` / `buildCanvas()` 操作画布，不直接改 DOM / localStorage / 源代码\n- 删除类操作（delete_project/canvas/item/relation）需 `confirm: true`\n- 不臆造内容，不确定的标为便签\n- 画布类命令内部自动 pushHistory 可回滚（set_style/set_preferences 属全局偏好，不入撤销栈）；batch 失败整体回滚\n\n";
-      skill+="## 命令清单（37 个 op）\n\n";
-      skill+="### 项目/画布\n| op | 关键参数 | 说明 |\n|----|----------|------|\n| snapshot | — | 当前完整状态快照 |\n| activate | projectId?, canvasId? | 切到指定项目/画布 |\n| create_project | name | 新建项目 |\n| rename_project | projectId?, name | 重命名项目 |\n| delete_project | projectId?, confirm:true | 删除（需确认） |\n| create_canvas | projectId?, name | 新建画布 |\n| rename_canvas | projectId?, canvasId, name | 重命名画布 |\n| delete_canvas | projectId?, canvasId, confirm:true | 删除画布（需确认） |\n\n";
-      skill+="### 元素创建\n| op | 关键参数 | 说明 |\n|----|----------|------|\n| create_node | title, parentId?, color?, x?, y?, detail? | 新建思维节点 |\n| create_note | text/markdown, x?, y?, color?, fontFamily?, fontSize?, bold?, underline? | 新建便签 |\n| create_attachment | name, kind?, summary?, x?, y?, attachTo? | 新建附件（AI 来源材料） |\n| create_stroke | points:[{x,y}], color?, size? | 画笔线条 |\n| create_connector | a:{x,y,free?}, b:{x,y,free?}, color?, width? | 连接器 |\n| build_canvas | plan:{...} | 从计划批量构建画布（见下） |\n\n";
-      skill+="### 元素操作\n| op | 关键参数 | 说明 |\n|----|----------|------|\n| update_item | itemId, patch:{text?,color?,detail?,annotation?,x?,y?,w?,h?,collapsed?,fontFamily?,fontSize?,bold?,underline?,jumpTo?,previewOpen?} | 更新属性 |\n| duplicate_item | itemId | 复制 |\n| delete_item | itemId | 删除（含关系线） |\n\n";
-      skill+="### 关系/连接\n| op | 关键参数 | 说明 |\n|----|----------|------|\n| relate | from, to, type?, annotation? | 创建/更新关系线 |\n| update_relation | linkId, type?, annotation?, level?, shape? | 更新关系线 |\n| delete_relation | linkId | 删除关系线 |\n| attach | nodeId, itemId | 便签/附件关联到节点 |\n| detach | nodeId, itemId | 解除关联 |\n| reparent_node | nodeId, parentId? | 移动节点（防循环） |\n\n";
-      skill+="### 形变/展开\n| op | 关键参数 | 说明 |\n|----|----------|------|\n| toggle_morph | itemId | 切换附件形变预览 |\n| set_morph | itemId, open?:bool | 设定附件展开/收起 |\n| toggle_detail | itemId | 切换节点详情展开 |\n| set_detail | itemId, expand?:bool | 设定详情展开/收起 |\n\n";
-      skill+="### 关系线样式\n| op | 关键参数 | 说明 |\n|----|----------|------|\n| set_link_level | linkId, level:\"normal\"\\|\"emphasis\"\\|\"highlight\" | 线权重 |\n| set_link_shape | linkId, shape:\"auto\"\\|\"curve\"\\|\"polyline\"\\|\"straight\" | 线型 |\n\n";
-      skill+="### 全局/系统\n| op | 关键参数 | 说明 |\n|----|----------|------|\n| set_layout | layout:\"right\"\\|\"org\"\\|\"u\"\\|\"fishbone\"\\|\"timeline\"\\|\"brace\" | 切换布局+自动排版 |\n| set_style | style, fontPreset? | 切换视觉样式+字体 |\n| set_preferences | dark?, bgPattern?, bgColorName?, stylePreset?, fontPreset? | 外观偏好 |\n| focus | itemId | 聚焦模式（高亮关联） |\n| exit_focus | — | 退出聚焦 |\n| undo | — | 撤销 |\n| redo | — | 重做 |\n| batch | commands:[{op,...}] | 批量（≤60 条，失败回滚） |\n\n";
-      skill+="## buildCanvas 计划格式\n\n~~~json\n{\n  \"title\": \"画布标题\",\n  \"layout\": \"right\",\n  \"replace\": false,\n  \"rootTitle\": \"主题\",\n  \"nodes\": [{ \"key\":\"n1\", \"title\":\"节点\", \"parentKey\":null, \"color\":\"#2d5fd3\", \"order\":0, \"detail\":\"详情\", \"annotation\":\"批注\", \"collapsed\":false, \"jumpTo\":\"canvasId\" }],\n  \"notes\": [{ \"key\":\"note1\", \"text\":\"便签内容\", \"x\":0, \"y\":0, \"color\":\"#fef3c7\", \"attachTo\":\"n1\" }],\n  \"attachments\": [{ \"key\":\"att1\", \"name\":\"材料\", \"summary\":\"摘要\", \"x\":0, \"y\":0, \"previewOpen\":false, \"attachTo\":\"n1\" }],\n  \"relations\": [{ \"from\":\"n1\", \"to\":\"n2\", \"type\":\"causes\", \"annotation\":\"导致\", \"level\":\"emphasis\", \"shape\":\"curve\" }]\n}\n~~~\n\n";
-      skill+="## 关系类型（type）\nrelated（关联·无向）、supports（支撑）、causes（导致）、contradicts（反证）、evidence（证据）\n\n";
-      skill+="## 关系线权重（level）\nnormal（常规）、emphasis（强调）、highlight（高亮）\n\n";
-      skill+="## 关系线线型（shape）\nauto、curve（曲线）、polyline（折线）、straight（直线）\n\n";
-      skill+="## 布局类型（layout）\nright（逻辑图）、org（组织架构）、u（U型）、fishbone（鱼骨图）、timeline（时间轴）、brace（总分）\n\n";
-      skill+="## 可用样式（set_style 的 style 值）\n"+stylesStr+"\n";
-      skill+="## Slogan\n\n织连万象，见聚一隅。\nWeave the many, See the one.\n";
-      skill+=reportGuide;
-      var blob=new Blob([skill],{type:"text/markdown;charset=utf-8"});
-      var url=URL.createObjectURL(blob);
-      var a=document.createElement("a");
-      a.download="织见-AI-Skill.md";a.href=url;
-      document.body.appendChild(a);a.click();a.remove();
-      setTimeout(function(){URL.revokeObjectURL(url);},1000);
-      toast("AI Skill 已导出");
+      const blob=new Blob([ZHIJIAN_AI_GUIDE.full],{type:'text/markdown;charset=utf-8'}),url=URL.createObjectURL(blob),a=document.createElement('a');
+      a.download='织见-L1-AI-Skill.md';a.href=url;document.body.append(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),1000);toast('AI Skill 已导出');
     };
     var cb=content.querySelector("#copyReportGuide");
     if(cb)cb.onclick=function(){

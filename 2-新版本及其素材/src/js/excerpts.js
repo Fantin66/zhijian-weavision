@@ -2,7 +2,7 @@
 /* Only a selection made in this window can create an attachment excerpt. */
 const EXCERPT_DRAG_TYPE="application/x-zhijian-excerpt";
 let excerptDrag=null,excerptDropHint=null;
-function excerptContentRoot(container){return container.querySelector(".pv-md-wrap,pre.pv-text,.pv-docx-stage")||container;}
+function excerptContentRoot(container){return container.querySelector(".l1-pdf-text,.pv-md-wrap,pre.pv-text,.pv-docx-stage")||container;}
 function excerptTextMap(root){
   const nodes=[];let text="";const walker=document.createTreeWalker(root,NodeFilter.SHOW_TEXT);let node;
   while((node=walker.nextNode())){
@@ -44,12 +44,12 @@ document.addEventListener("dragstart",e=>{
   const range=selection.getRangeAt(0),element=range.startContainer.nodeType===1?range.startContainer:range.startContainer.parentElement;
   const host=element?.closest("[data-source-file-id]");if(!host||!host.contains(e.target)||!host.contains(range.endContainer))return;
   if(element.closest("textarea,input,[contenteditable=true]"))return;
-  const file=state.files.find(f=>f.id===host.dataset.sourceFileId);if(!file||!["text","code","doc"].includes(file.kind))return;
+  const file=state.files.find(f=>f.id===host.dataset.sourceFileId);if(!file||!["text","code","doc","pdf"].includes(file.kind))return;
   const root=excerptContentRoot(host);if(!root.contains(range.startContainer)||!root.contains(range.endContainer))return;
   const {text}=excerptTextMap(root),start=excerptOffset(root,range.startContainer,range.startOffset),end=excerptOffset(root,range.endContainer,range.endOffset),quote=text.slice(start,end);
   if(!quote.trim())return;
   if(quote.length>100000){e.preventDefault();toast("这段文字过长，请分段摘录");return;}
-  excerptDrag={projectId:state.activeProjectId,canvasId:state.activeCanvasId,text:selection.toString(),ref:{fileId:file.id,name:file.name,quote,anchor:{start,end,prefix:text.slice(Math.max(0,start-64),start),suffix:text.slice(end,end+64)}}};
+  excerptDrag={projectId:state.activeProjectId,canvasId:state.activeCanvasId,text:selection.toString(),ref:{fileId:file.id,name:file.name,quote,page:Number(element.closest("[data-pdf-page]")?.dataset.pdfPage)||undefined,contentHash:file.contentHash||null,anchor:{start,end,prefix:text.slice(Math.max(0,start-64),start),suffix:text.slice(end,end+64)}}};
   e.dataTransfer.setData(EXCERPT_DRAG_TYPE,"selection");e.dataTransfer.setData("text/plain",excerptDrag.text);e.dataTransfer.effectAllowed="copy";
 },true);
 function excerptBoardDrop(e){
@@ -72,6 +72,7 @@ document.addEventListener("drop",e=>{
   const xy=boardXY(e.clientX,e.clientY),point=s2w(xy.x,xy.y);
   pushHistory("拖入附件摘录");const note=addNote(point.x,point.y,data.text,state.noteColor);
   note.x=Math.round(point.x);note.y=Math.round(point.y);note.w=260;note.h=160;note.sourceRef=data.ref;
+  const source=state.files.find(f=>f.id===data.ref.fileId);readStoredBlob(source).then(async blob=>{if(blob&&!data.ref.contentHash){data.ref.contentHash=await L1Storage.hash(blob);source.contentHash=data.ref.contentHash;saveStateDebounced();}}).catch(()=>{});
   state.selected=note.id;state.multiSel=[];window.getSelection()?.removeAllRanges();render();saveStateDebounced();
   toast("已创建摘录便签；选中后点击「查看来源」返回原文");
 },true);

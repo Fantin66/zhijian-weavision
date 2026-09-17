@@ -96,6 +96,7 @@ async function tryNativeOpen(f){
    普通浏览器出于安全限制无法启动任意本机程序，才降级为下载。 */
 async function openWithExternalApp(f){
   if(!f)return;
+  if(f.sourceOnly){showModal("来源信息",l1SourceHtml(f),[{label:"关闭"}]);return;}
   if(f.kind==="link"){
     if(isSafePreviewUrl(f.url)){window.open(f.url,"_blank","noopener");return;}
     toast("链接地址无效");
@@ -265,6 +266,7 @@ function syncPvDom(){
 }
 function renderPvContent(pv,f,body){
   body.dataset.sourceFileId=f?.id||"";
+  if(f?.sourceOnly){body.innerHTML=l1SourceHtml(f);return;}
   if(!f){body.innerHTML='<div class="pv-msg"><span class="big">⚠️</span>文件不存在</div>';return;}
   const kick=(url,type)=>{
     if(type==="img"){
@@ -534,6 +536,7 @@ function ensureMorphDom(it){
     kickMorph(el,f.url,"link");
   }else{
     /* G7: getBlob 的 catch 兜底 + 所有 async 渲染函数加 .catch 防止 unhandled rejection */
+    if(f.sourceOnly){body.innerHTML=l1SourceHtml(f);return;}
     getBlob(it.fileId).then(b=>{
       if(stale())return;
       if(!b){if(stale())return;body.innerHTML='<div class="pv-msg"><span class="big">⚠️</span>文件不存在<br><a download>重新导入后再试</a></div>';return;}
@@ -783,6 +786,7 @@ function getFileCardOriginRect(it){
 function openFullscreen(fileIdOrItem,options={}){
   const f=typeof fileIdOrItem==="object"?fileIdOrItem:state.files.find(x=>x.id===fileIdOrItem);
   if(!f)return;
+  if(f.sourceOnly){showModal("来源信息",l1SourceHtml(f),[{label:"关闭"}]);return;}
   const fv=document.getElementById("fullscreenView");
   const controls=fullscreenControls();
   const body=fv.querySelector(".fv-body");
@@ -811,8 +815,8 @@ function openFullscreen(fileIdOrItem,options={}){
     lt.title="切换标签页布局";
     lt.innerHTML='<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="4" rx="1"/><rect x="3" y="10" width="18" height="11" rx="1"/></svg>';
     lt.addEventListener("click",function(){
-      document.getElementById("fullscreenTopControls").classList.toggle("fv-vertical-controls");
-      lt.innerHTML=document.getElementById("fullscreenTopControls").classList.contains("fv-vertical-controls")?'<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="4" height="18" rx="1"/><rect x="10" y="3" width="11" height="18" rx="1"/></svg>':'<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="4" rx="1"/><rect x="3" y="10" width="18" height="11" rx="1"/></svg>';
+      document.getElementById("fullscreenView").classList.toggle("fv-vertical");
+      lt.innerHTML=document.getElementById("fullscreenView").classList.contains("fv-vertical")?'<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="4" height="18" rx="1"/><rect x="10" y="3" width="11" height="18" rx="1"/></svg>':'<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="4" rx="1"/><rect x="3" y="10" width="18" height="11" rx="1"/></svg>';
     });
     var ctrls=document.getElementById("fullscreenTopControls");
     if(ctrls){var fc=ctrls.querySelector(".fv-close");if(fc)ctrls.insertBefore(lt,fc);}
@@ -909,7 +913,7 @@ function openFullscreen(fileIdOrItem,options={}){
         if(!f._url)f._url=URL.createObjectURL(b);
         if(f.kind==="doc")renderDocx(b,body,f.name).then(()=>{if(fullscreenToken===myToken)highlightSourceQuote(body,options.sourceQuote,options.sourceAnchor);});
         else if(f.kind==="sheet")renderSheet(b,body);
-        else if(f.kind==="pdf")renderPdf(b,body,{paginate:true,initialPage:options.sourcePage||1,fitToWidth:true});
+        else if(f.kind==="pdf")renderPdf(b,body,{paginate:true,initialPage:options.sourcePage||1,fitToWidth:true,sourceQuote:options.sourceQuote,sourceAnchor:options.sourceAnchor});
         else if(f.kind==="slide")renderPptx(b,body);
       }).catch(()=>{if(fullscreenToken===myToken)body.innerHTML='<div class="pv-msg">文件读取失败</div>';});
       return;
@@ -948,7 +952,7 @@ function closeFullscreen(){
     }
     const finish=()=>{
       fv.hidden=true;
-      fv.classList.remove("closing","editor-view");
+      fv.classList.remove("closing","editor-view","fv-vertical");
       fv.style.transition="";fv.style.transform="";fv.style.transformOrigin="";fv.style.opacity="";
       const body=fv.querySelector(".fv-body");body.innerHTML="";body.classList.remove("file-preview","markdown-only");body.style.removeProperty("--fv-content-zoom");
       document.body.classList.remove("fullscreen-active");fullscreenCloseTimer=0;
@@ -1062,8 +1066,8 @@ function openMdFullscreenEditor(opt){
     lt.title="切换标签页布局";
     lt.innerHTML='<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="4" rx="1"/><rect x="3" y="10" width="18" height="11" rx="1"/></svg>';
     lt.addEventListener("click",function(){
-      document.getElementById("fullscreenTopControls").classList.toggle("fv-vertical-controls");
-      lt.innerHTML=document.getElementById("fullscreenTopControls").classList.contains("fv-vertical-controls")?'<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="4" height="18" rx="1"/><rect x="10" y="3" width="11" height="18" rx="1"/></svg>':'<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="4" rx="1"/><rect x="3" y="10" width="18" height="11" rx="1"/></svg>';
+      document.getElementById("fullscreenView").classList.toggle("fv-vertical");
+      lt.innerHTML=document.getElementById("fullscreenView").classList.contains("fv-vertical")?'<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="4" height="18" rx="1"/><rect x="10" y="3" width="11" height="18" rx="1"/></svg>':'<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="4" rx="1"/><rect x="3" y="10" width="18" height="11" rx="1"/></svg>';
     });
     var ctrls=document.getElementById("fullscreenTopControls");
     if(ctrls){var fc=ctrls.querySelector(".fv-close");if(fc)ctrls.insertBefore(lt,fc);}
@@ -1343,7 +1347,7 @@ async function renderPdf(b,bodyEl,opt={}){
       canvas.style.cssText="display:block;margin:0 auto 8px;box-shadow:0 2px 12px rgba(0,0,0,.12);background:#fff"+(opt.fitToWidth?";max-width:"+Math.round(ratio*100)+"%;height:auto":"");
       const controls=document.createElement("div");
       controls.style.cssText="display:flex;align-items:center;justify-content:center;gap:9px;padding:2px 8px 8px;color:var(--ink-dim);font-size:11px";
-      const makeButton=(label,title)=>{const btn=document.createElement("button");btn.type="button";btn.textContent=label;btn.title=title;btn.style.cssText="width:24px;height:22px;border:1px solid var(--card-border);border-radius:7px;background:var(--surface);color:var(--ink);font:600 15px/1 var(--font);cursor:pointer";["pointerdown","mousedown","click"].forEach(type=>btn.addEventListener(type,e=>e.stopPropagation()));return btn;};
+      const makeButton=(label,title)=>{const btn=document.createElement("button");btn.type="button";btn.className="pv-page-btn";btn.textContent=label;btn.title=title;["pointerdown","mousedown","click"].forEach(type=>btn.addEventListener(type,e=>e.stopPropagation()));return btn;};
       const prev=makeButton("‹","上一页"),next=makeButton("›","下一页"),counter=document.createElement("span");
       controls.append(prev,counter,next);container.append(canvas,controls);
       let current=1,paintToken=0;
@@ -1436,3 +1440,5 @@ async function renderPptx(b,bodyEl){
 }
 /* I5-fix: exportBranch（子树 PNG 导出）零调用方，已删除——其连线锚点走的是退役的
    nodeAnchorR/L 硬编码路由，与现行 relAnchors/routeConnection 不一致，留着是颗雷 */
+
+function l1SourceHtml(file){return "<p>来源信息卡（未包含原文件）</p><pre style=\"white-space:pre-wrap\">"+escapeHtml([file.name,file.aiSource?.summary,file.aiSource?.locator,file.aiSource?.excerpt].filter(Boolean).join("\n\n"))+"</pre>";}

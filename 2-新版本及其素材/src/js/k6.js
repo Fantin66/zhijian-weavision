@@ -1,7 +1,7 @@
 "use strict";
 /* Persistence, recovery and diagnostics use the same state and file stores as K5. */
 const pendingWrites=new Set(),failedWrites=new Map();
-let packageBusy=false,packageCancelled=false,lastRecoveryAt=0,recoveryWork=Promise.resolve();
+let packageTaskId=null,packageBusy=false,packageCancelled=false,lastRecoveryAt=0,recoveryWork=Promise.resolve();
 function updateSaveStatus(status){
   let el=document.getElementById("saveStatus");
   if(!el){el=document.createElement("button");el.id="saveStatus";el.className="k6-save";el.type="button";el.onclick=retryPersistence;el.setAttribute("aria-live","polite");document.body.appendChild(el);}
@@ -13,7 +13,7 @@ function persistBlob(file){
     try{const tx=idb.transaction("files","readwrite");tx.objectStore("files").put(file.blob,file.id);tx.oncomplete=resolve;tx.onerror=tx.onabort=()=>reject(tx.error||new Error("附件写入中断"));}catch(e){reject(e);}
   });
   pendingWrites.add(promise);updateSaveStatus("saving");
-  promise.then(()=>failedWrites.delete(file.id),()=>failedWrites.set(file.id,file)).finally(()=>{pendingWrites.delete(promise);updateSaveStatus(failedWrites.size?"error":pendingWrites.size?"saving":"saved");});
+  promise.then(()=>failedWrites.delete(file.id),()=>failedWrites.set(file.id,file)).finally(()=>{pendingWrites.delete(promise);updateSaveStatus(failedWrites.size?"error":pendingWrites.size||L1Storage.pending()?"saving":"saved");});
   return promise;
 }
 async function readStoredBlob(file){
@@ -23,7 +23,7 @@ async function readStoredBlob(file){
 async function flushPersistence(){
   closeEditor(false);closeMindEditor(false);
   if(packageBusy){toast("请先完成或取消导入导出任务");return false;}
-  await Promise.allSettled([...pendingWrites]);const saved=saveState()&&!failedWrites.size;
+  await Promise.allSettled([...pendingWrites]);const saved=await saveState()&&!failedWrites.size;
   await recoveryWork.catch(()=>{});return saved;
 }
 async function retryPersistence(){
@@ -41,7 +41,7 @@ function showPackageProgress(text){
   packageCancelled=false;let el=document.getElementById("packageProgress");
   if(!el){el=document.createElement("div");el.id="packageProgress";el.className="k6-progress";el.innerHTML='<span role="status"></span><button type="button">取消</button>';document.body.appendChild(el);}
   el.hidden=false;el.querySelector("span").textContent=text;
-  el.querySelector("button").onclick=async()=>{packageCancelled=true;await window.electronAPI?.cancelPackage?.();el.querySelector("span").textContent="正在取消…";};
+  el.querySelector("button").onclick=async()=>{const result=packageTaskId?await window.electronAPI.packageCancel({id:packageTaskId}):await window.electronAPI?.cancelPackage?.();if(result?.ok===false){toast(result.error);return;}packageCancelled=true;el.querySelector("span").textContent="正在取消…";};
 }
 function hidePackageProgress(){const el=document.getElementById("packageProgress");if(el)el.hidden=true;}
 async function k6Export(scope,format){
@@ -49,37 +49,53 @@ async function k6Export(scope,format){
   if(packageBusy){toast("请等待当前任务完成");return;}
   packageBusy=true;showPackageProgress("准备导出");
   try{
-    const p=curProject(),structure=PackageModel.encode(p,scope==="project"?null:curCanvas().id),attachments=[];
-    const exportFiles=new Map(p.files.map(f=>[f.id,{...f}]));
-    for(const fm of structure.fileMeta){
-      if(packageCancelled)throw new Error("cancelled");if(fm.kind==="link"&&fm.url)continue;
-      const blob=await readStoredBlob(exportFiles.get(fm.oldId));if(!blob)throw new Error("附件读取失败："+fm.name);
-      attachments.push({name:fm.packageName,buffer:await blob.arrayBuffer()});
+    closeEditor(false);closeMindEditor(false);
+    await Promise.all([...pendingWrites]);if(!await saveState())throw new Error('画布尚未保存');
+    const p=curProject(),structure=PackageModel.encode(p,scope==="project"?null:curCanvas().id);
+    const external=structure.canvases.flatMap(c=>c.items.filter(i=>i.externalJump));
+    if(external.length&&!await new Promise(resolve=>{modal.addEventListener('zhijian-modal-close',()=>resolve(false),{once:true});showModal('导出范围提示','<p>'+external.length+' 处跳转指向导出范围之外。将保留原目标信息，导入后可重新关联。</p>',[{label:'取消',onClick:()=>resolve(false)},{label:'继续导出',primary:true,onClick:()=>resolve(true)}]);}))throw new Error('cancelled');
+    const exportFiles=new Map(p.files.map(f=>[f.id,{...f}])),blobs=new Map();
+    for(const fm of structure.fileMeta){if(fm.sourceOnly||fm.kind==='link'&&fm.url)continue;const blob=await readStoredBlob(exportFiles.get(fm.oldId));if(!blob)throw new Error('附件读取失败：'+fm.name);fm.size=blob.size;blobs.set(fm.packageName,blob);}
+    if(packageCancelled)throw new Error('cancelled');
+    const begin=await window.electronAPI.packageBegin({op:'export',format,projectName:p.name+(scope==='project'?'':'-'+structure.canvases[0].name),structure});
+    if(!begin.ok)throw new Error(begin.error);packageTaskId=begin.id;
+    for(const [name,blob]of blobs){
+      for(let offset=0;offset<blob.size||offset===0;offset+=4*1024**2){
+        if(packageCancelled)throw new Error('cancelled');
+        const result=await window.electronAPI.packageChunk({id:packageTaskId,name,offset,buffer:await blob.slice(offset,offset+4*1024**2).arrayBuffer()});
+        if(!result.ok)throw new Error(result.error);
+        document.querySelector('#packageProgress span').textContent='传输附件 '+name+' · '+Math.min(blob.size,offset+4*1024**2)+' / '+blob.size;
+      }
     }
-    if(packageCancelled)throw new Error("cancelled");
-    const data={projectName:p.name+(scope==="project"?"":"-"+structure.canvases[0].name),structure,attachments};
-    const res=await window.electronAPI[format==="fantin"?"exportFantin":"exportFolder"](data);
-    if(!res.ok)throw new Error(res.error);toast("已导出："+res.path+"（"+res.attachments+" 个附件）");
+    if(packageCancelled)throw new Error('cancelled');
+    const res=await window.electronAPI.packageFinish({id:packageTaskId});packageTaskId=null;
+    if(!res.ok)throw new Error(res.error);toast('已导出：'+res.path+'（'+blobs.size+' 个附件）');
   }catch(e){toast(e.message==="cancelled"?"已取消导出":"导出失败："+e.message);}
-  finally{packageBusy=false;hidePackageProgress();}
+  finally{if(packageTaskId)await window.electronAPI.packageCancel({id:packageTaskId});packageTaskId=null;packageBusy=false;hidePackageProgress();}
 }
 async function k6Import(format,presetPath){
   if(packageBusy){toast("请等待当前任务完成");return;}packageBusy=true;showPackageProgress("准备导入");let imported=null;
   try{
-    const res=await window.electronAPI[format==="fantin"?"importFantin":"importFolder"](presetPath);
-    if(!res.ok)throw new Error(res.error);if(packageCancelled)throw new Error("cancelled");
-    const p=imported=PackageModel.decode(res.structure,res.attachments,prefix=>prefix==="item"?uid++:prefix+(uid++));
+    const res=await window.electronAPI.packageBegin({op:'import',format,input:presetPath});
+    if(!res.ok)throw new Error(res.error);packageTaskId=res.id;if(packageCancelled)throw new Error('cancelled');
+    const attachments=[];
+    for(const entry of res.attachments){const chunks=[];let offset=0;
+      while(offset<entry.size){if(packageCancelled)throw new Error('cancelled');const part=await window.electronAPI.packageChunk({id:packageTaskId,name:entry.name,offset});if(!part.ok)throw new Error(part.error);if(!part.buffer.byteLength)throw new Error('附件传输中断');chunks.push(new Blob([part.buffer]));offset+=part.buffer.byteLength;}
+      attachments.push({name:entry.name,blob:new Blob(chunks)});
+    }
+    const p=imported=PackageModel.decode(res.structure,attachments,prefix=>prefix==="item"?uid++:prefix+(uid++));
     for(const f of p.files)if(!f.kind)f.kind=kindOf(f.name);
     for(const f of p.files)if(f.blob){if(packageCancelled)throw new Error("cancelled");await persistBlob(f);}
+    if(packageCancelled)throw new Error("cancelled");
     const oldProject=state.activeProjectId,oldCanvas=state.activeCanvasId;
     state.projects.push(p);state.activeProjectId=p.id;state.activeCanvasId=p.canvases[0].id;resetTransientState();syncUid();
-    if(!saveState()){
+    if(!await saveState()){
       state.projects=state.projects.filter(x=>x!==p);state.activeProjectId=oldProject;state.activeCanvasId=oldCanvas;
       throw new Error("画布保存失败，导入未提交，请释放存储空间后重试");
     }
     await restoreFiles();renderSidePanel();render();fitAll();toast("已导入："+p.name+"（"+p.canvases.length+" 张画布，"+p.files.length+" 个附件）");
   }catch(e){if(imported&&!state.projects.includes(imported))for(const f of imported.files)failedWrites.delete(f.id);toast(e.message==="cancelled"?"已取消导入":"导入失败："+e.message);}
-  finally{packageBusy=false;hidePackageProgress();}
+  finally{if(packageTaskId)await window.electronAPI.packageCancel({id:packageTaskId});packageTaskId=null;packageBusy=false;hidePackageProgress();}
 }
 function recoveryTransaction(mode,action){
   return new Promise((resolve,reject)=>{if(!idb){reject(new Error("恢复存储不可用"));return;}try{const tx=idb.transaction("recovery",mode);const result=action(tx.objectStore("recovery"));tx.oncomplete=()=>resolve(result?.result);tx.onerror=tx.onabort=()=>reject(tx.error||new Error("恢复记录写入失败"));}catch(e){reject(e);}});
@@ -88,18 +104,9 @@ function captureRecoveryData(){
   return {projects:PackageModel.clone(state.projects),activeProjectId:state.activeProjectId,activeCanvasId:state.activeCanvasId};
 }
 function queueRecovery(label){
-  const data=captureRecoveryData(),files=state.projects.flatMap(p=>p.files.map(f=>({...f})));
-  const task=recoveryWork.catch(()=>{}).then(async()=>{
-    const blobs=[];for(const f of files){if(f.kind==="link")continue;const blob=await readStoredBlob(f);if(!blob)throw new Error("无法备份附件："+f.name);blobs.push({id:f.id,blob});}
-    const record={id:Date.now()+"-"+Math.random().toString(36).slice(2),created:Date.now(),label,data,blobs};
-    await recoveryTransaction("readwrite",store=>store.put(record));
-    const records=await recoveryTransaction("readonly",store=>store.getAll());
-    const old=records.sort((a,b)=>b.created-a.created).slice(10);
-    if(old.length)await recoveryTransaction("readwrite",store=>{for(const r of old)store.delete(r.id);});
-    lastRecoveryAt=Date.now();return true;
-  });
-  recoveryWork=task;
-  return task.catch(e=>{toast("未能创建恢复点："+e.message);return false;});
+  const snapshot=L1Storage.recoverySnapshot();
+  const task=recoveryWork.catch(()=>{}).then(()=>L1Storage.recover(label,snapshot));
+  recoveryWork=task;return task.then(()=>{lastRecoveryAt=Date.now();return true;}).catch(e=>{toast("未能创建恢复点："+e.message);return false;});
 }
 function scheduleRecovery(){
   if(!idb||pendingWrites.size||failedWrites.size||Date.now()-lastRecoveryAt<300000)return;
@@ -107,7 +114,7 @@ function scheduleRecovery(){
 }
 async function showRecoveryCenter(){
   try{
-    const records=(await recoveryTransaction("readonly",s=>s.getAll())).sort((a,b)=>b.created-a.created);
+    const records=await L1Storage.records();
     showModal("恢复中心",'<p>保留最近 10 个版本，包含附件。恢复时创建副本，现有项目继续保留。</p><div id="recoveryList"></div>',[{label:"关闭"}]);
     const list=modal.querySelector("#recoveryList");if(!records.length){list.textContent="暂无恢复记录";return;}
     for(const r of records){const button=document.createElement("button");button.className="k6-list-row";button.textContent=new Date(r.created).toLocaleString()+" · "+r.label;button.onclick=()=>{
@@ -117,10 +124,11 @@ async function showRecoveryCenter(){
   }catch(e){toast("恢复中心不可用："+e.message);}
 }
 async function restoreRecoveryRecord(record){
+  record=await L1Storage.hydrate(record);
   const blobMap=new Map(record.blobs.map(f=>[f.id,f.blob])),newProjects=[];
   for(const original of record.data.projects){
     const structure=PackageModel.encode(original),attachments=[];
-    for(const f of structure.fileMeta){const b=blobMap.get(f.oldId);if(b)attachments.push({name:f.packageName,buffer:await b.arrayBuffer()});}
+    for(const f of structure.fileMeta){const b=blobMap.get(f.oldId);if(b)attachments.push({name:f.packageName,blob:b});}
     const p=PackageModel.decode(structure,attachments,prefix=>prefix==="item"?uid++:prefix+(uid++));p.name+="（恢复副本）";
     for(const f of p.files)if(f.blob)await persistBlob(f);newProjects.push(p);
   }
@@ -132,11 +140,11 @@ async function restoreRecoveryRecord(record){
     const destination=target._importMaps.canvases.get(ref.canvasId);if(!destination)continue;
     const restoredCanvas=copy.canvases.find(b=>b.id===copy._importMaps.canvases.get(c.id));
     const restoredItem=restoredCanvas.items.find(i=>i.id===copy._importMaps.items.get(c.id).get(item.id));
-    restoredItem.jumpTo={projectId:target.id,canvasId:destination,itemId:target._importMaps.items.get(ref.canvasId)?.get(ref.itemId)||null};
+    delete restoredItem.externalJump;restoredItem.jumpTo={projectId:target.id,canvasId:destination,itemId:target._importMaps.items.get(ref.canvasId)?.get(ref.itemId)||null};
   }}
   const oldProject=state.activeProjectId,oldCanvas=state.activeCanvasId;
   state.projects.push(...newProjects);state.activeProjectId=newProjects[0].id;state.activeCanvasId=newProjects[0].canvases[0].id;
-  if(!saveState()){state.projects=state.projects.filter(p=>!newProjects.includes(p));state.activeProjectId=oldProject;state.activeCanvasId=oldCanvas;throw new Error("存储空间不足，恢复副本未提交");}
+  if(!await saveState()){state.projects=state.projects.filter(p=>!newProjects.includes(p));state.activeProjectId=oldProject;state.activeCanvasId=oldCanvas;throw new Error("存储空间不足，恢复副本未提交");}
   resetTransientState();await restoreFiles();renderSidePanel();render();toast("已恢复为副本");
 }
 async function k6ImportBackup(file){
@@ -156,6 +164,7 @@ function inspectRelations(project){
       if(i.parentId){connected.add(i.id);connected.add(i.parentId);if(!ids.has(i.parentId))add("父节点已不存在",i);}
       if(i.fileId&&!project.files.some(f=>f.id===i.fileId))add("材料卡片缺少附件记录",i);
       if(i.sourceRef&&(i.sourceRef.missing||(i.sourceRef.fileId&&!project.files.some(f=>f.id===i.sourceRef.fileId))))add("摘录来源附件已不存在",i);
+      if(i.externalJump)add("外部跃迁待重新关联",i);
       if(i.jumpTo){const ref=typeof i.jumpTo==="string"?{canvasId:i.jumpTo}:i.jumpTo;const p=state.projects.find(p=>p.id===(ref.projectId||project.id)),target=p?.canvases.find(b=>b.id===ref.canvasId);if(!target||(ref.itemId&&!target.items.some(n=>n.id===ref.itemId)))add("跃迁目标已不存在",i);}
       const seen=new Set([i.id]);let ancestor=i;while(ancestor?.parentId){if(seen.has(ancestor.parentId)){add("父子关系存在循环",i);break;}seen.add(ancestor.parentId);ancestor=ids.get(ancestor.parentId);}
     }
@@ -183,13 +192,15 @@ async function openSourceRef(selection){
   const ref=selection.sourceRef||state.links.find(l=>l.id===selection.id)?.sourceRef;if(!ref){editSourceRef(selection);return;}
   if(ref.url){if(!/^https?:\/\//i.test(ref.url)){toast("来源网页地址无效");return;}window.open(ref.url,"_blank","noopener");return;}
   const f=state.files.find(f=>f.id===ref.fileId);if(!f){toast("来源附件已不存在");return;}
+  const blob=await readStoredBlob(f);
+  if(blob&&ref.contentHash&&await L1Storage.hash(blob)!==ref.contentHash)toast("来源文件版本已变化，将按原文重新定位");
   openFullscreen(f,{sourcePage:ref.page,sourceQuote:ref.quote,sourceAnchor:ref.anchor});
 }
 function initK6(){
   updateSaveStatus("saved");
   document.fonts?.addEventListener("loadingdone",()=>{mindMetricsCache=new WeakMap();requestRender();});
   window.electronAPI?.onPackageProgress?.(p=>{const el=document.querySelector("#packageProgress span");if(el)el.textContent=p.text+" "+p.percent+"%";});
-  const menu=document.createElement("button");menu.type="button";menu.className="k6-check";menu.textContent="关系检查";menu.onclick=showRelationCheck;document.body.appendChild(menu);
+  const menu=document.createElement("button");menu.type="button";menu.className="k6-check";menu.textContent="关系检查";menu.onclick=()=>showModal("关系工具",null,[{label:"检查失效引用",onClick:()=>{showRelationCheck();return false;}},{label:"关系分析与阅读路径",onClick:()=>{L1Research.showRelations();return false;}},{label:"关闭"}]);document.body.appendChild(menu);
 }
 
 function highlightSourceQuote(container,quote,anchor){

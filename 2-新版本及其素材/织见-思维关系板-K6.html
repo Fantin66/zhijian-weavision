@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>织见 · 思维关系板 · K8.5</title>
+<title>织见 · 思维关系板 · L1</title>
 <link rel="stylesheet" href="src/styles.css?v=31">
 </head>
 <body>
@@ -29,7 +29,6 @@
   </div>
   <!-- 全屏时接管顶栏：保留品牌，标签与附件操作集中到同一工作区。 -->
   <div id="fullscreenTopControls" aria-label="全屏附件工作区">
-    <div class="fv-tabs empty" id="fvTabs" role="tablist" aria-label="已打开的附件"></div>
     <span class="fv-title" aria-live="polite"></span>
     <div class="fv-modes" id="fvModes">
       <button class="fv-mode" type="button" data-mode="edit" title="编辑模式">编辑</button>
@@ -110,7 +109,7 @@
   <div class="brand-footer">
     <img class="bf-cn" alt="织见">
     <div class="bf-info">
-      <span class="bf-ver">K8.5</span>
+      <span class="bf-ver">L1.5d</span>
       <span class="bf-slogan">织连万象，见聚一隅</span>
     </div>
     <button class="bf-settings" type="button" title="设置" aria-label="设置"></button>
@@ -137,6 +136,7 @@
   <div id="ctxMenu"></div>
   <!-- 全屏预览层：顶部工作区已移至应用顶栏，这里仅保留内容阅读区域。 -->
   <div id="fullscreenView" hidden>
+    <div class="fv-tabs empty" id="fvTabs" role="tablist" aria-label="已打开的附件"></div>
     <div class="fv-body"></div>
   </div>
     <div id="helpPop">
@@ -225,6 +225,11 @@
 <script src="src/js/ai.js"></script>
 <script src="src/js/k6.js"></script>
 <script src="src/js/excerpts.js"></script>
+<script src="src/js/l1-storage.js"></script>
+<script src="src/js/l1-search.js"></script>
+<script src="src/js/l1-pdf.js"></script>
+<script src="src/js/l1-research.js"></script>
+<script src="src/js/ai-guide.js"></script>
 <script src="src/js/app.js"></script>
 </body>
 </html>

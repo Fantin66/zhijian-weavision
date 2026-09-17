@@ -2,7 +2,7 @@
 /* ============================================================
    AI 编排接口（同页上下文调用，不读取或传出本地文件内容）
 ============================================================ */
-const ZHIJIAN_AI_API_VERSION="1.3";   /* 1.3: 形变/展开/线权重/线型控制 */
+const ZHIJIAN_AI_API_VERSION="2.0";   /* 1.3: 形变/展开/线权重/线型控制 */
 const AI_LIMITS={nodes:240,notes:120,attachments:120,relations:480,batch:60,planChars:160000};
 const AI_LAYOUTS={logic:"logic",right:"logic",left:"logic",org:"org",fishbone:"fishbone",timeline:"timeline",u:"logic",brace:"logic",radial:"logic",both:"logic"};
 function aiFail(message){throw new Error(message);}
@@ -12,6 +12,7 @@ function aiProject(projectId){
 }
 function aiActivate(projectId,canvasId){
   const project=aiProject(projectId||state.activeProjectId);
+  if(canvasId&&!project.canvases.some(c=>c.id===canvasId))aiFail("未找到画布："+canvasId);
   const canvas=project.canvases.find(c=>c.id===canvasId)||project.canvases[0];
   if(!canvas)aiFail("项目中没有可用画布");
   state.activeProjectId=project.id;state.activeCanvasId=canvas.id;state.selected=null;return{project,canvas};
@@ -25,15 +26,16 @@ function aiSnapshot(){
   const d={
     version:ZHIJIAN_AI_API_VERSION,
     activeProjectId:state.activeProjectId,activeCanvasId:state.activeCanvasId,
-    projects:state.projects.map(p=>({id:p.id,name:p.name,files:(p.files||[]).map(f=>({id:f.id,name:f.name,kind:f.kind,size:f.size,mime:f.mime,folderId:f.folderId||null,aiSource:f.aiSource||null})),canvases:(p.canvases||[]).map(c=>({id:c.id,name:c.name,items:c.items||[],links:c.links||[]}))})),
+    projects:state.projects.map(p=>({id:p.id,name:p.name,files:(p.files||[]).map(f=>({id:f.id,name:f.name,kind:f.kind,size:f.size,mime:f.mime,folderId:f.folderId||null,aiSource:f.aiSource||null})),canvases:(p.canvases||[]).map(c=>({id:c.id,name:c.name,items:PackageModel.clone(c.items||[]),links:c.links||[]}))})),
     preferences:{dark:state.dark,fontPreset:state.fontPreset,bgPattern:state.bgPattern,bgColorName:state.bgColorName,layoutType:state.layoutType,stylePreset:state.stylePreset,immersive:!!document.body.classList.contains("immersive")},
   };
   return typeof structuredClone==="function"?structuredClone(d):JSON.parse(JSON.stringify(d));
 }
 function aiCommit(){cleanupProjectReferences();syncUid();renderSidePanel();render();saveState();}
 function aiRelation(aId,bId,type,annotation){
-  const relationType=RELATION_TYPES[type]?type:"related";
-  const existing=state.links.find(l=>(l.aId===aId&&l.bId===bId)||(l.aId===bId&&l.bId===aId));
+  if(type&&!RELATION_TYPES[type])aiFail("无效关系类型："+type);
+  const relationType=type||"related";
+  const existing=state.links.find(l=>(l.aId===aId&&l.bId===bId)||(!RELATION_TYPES[relationType].directional&&!l.directional&&l.aId===bId&&l.bId===aId));
   if(existing){existing.relationType=relationType;existing.directional=!!RELATION_TYPES[relationType].directional;existing.annotation=annotation||existing.annotation||"";return existing;}
   const link={id:"lnk"+(uid++),aId,bId,annotation:annotation||"",relationType,directional:!!RELATION_TYPES[relationType].directional};
   state.links.push(link);return link;
@@ -41,7 +43,7 @@ function aiRelation(aId,bId,type,annotation){
 function aiRegisterSource(source){
   if(source.fileId){const file=state.files.find(f=>f.id===source.fileId);if(!file)aiFail("未找到附件："+source.fileId);return file;}
   /* I5-fix: 放行 source.kind（此前硬编码 "other"，与命令文档宣称的 kind 参数不符） */
-  const file={id:"ai-file-"+(uid++),name:source.name||"AI 来源材料",kind:source.kind||"other",size:Number(source.size)||0,mime:source.mime||"text/plain",url:null,created:Date.now(),folderId:null,aiSource:{summary:source.summary||"",locator:source.locator||"",excerpt:source.excerpt||""}};
+  const file={id:"ai-file-"+(uid++),name:source.name||"AI 来源材料",sourceOnly:true,kind:source.kind||"other",size:Number(source.size)||0,mime:source.mime||"text/plain",url:null,created:Date.now(),folderId:null,aiSource:{summary:source.summary||"",locator:source.locator||"",excerpt:source.excerpt||""}};
   state.files.push(file);return file;
 }
 function normalizeAiLayout(value){
@@ -96,13 +98,13 @@ function aiCaptureState(){
 }
 function aiRestoreState(snapshot){
   const snap=JSON.parse(snapshot.json!==undefined?snapshot.json:snapshot);
-  if(snapshot.histories){canvasHistories.clear();for(const [key,value] of snapshot.histories)canvasHistories.set(key,value);activateHistory();}
+  if(snapshot.histories){canvasHistories.clear();for(const [key,value] of snapshot.histories)canvasHistories.set(key,value);}
   state.projects=snap.projects;state.activeProjectId=snap.activeProjectId;state.activeCanvasId=snap.activeCanvasId;state.selected=snap.selected||null;
-  Object.assign(state,snap.ui||{});uid=snap.uid||uid;
+  activateHistory();Object.assign(state,snap.ui||{});uid=snap.uid||uid;
   if(snapshot.blobs)for(const p of state.projects)for(const f of (p.files||[])){const k=p.id+":"+f.id;if(snapshot.blobs[k])f.blob=snapshot.blobs[k];}
   applyTheme();applyFontPreset();cleanupProjectReferences();syncUid();renderSidePanel();render();saveState();
 }
-function aiRunBatch(commands){
+async function aiRunBatch(commands){
   if(!Array.isArray(commands)||!commands.length)aiFail("batch 需要非空 commands 数组");
   if(commands.length>AI_LIMITS.batch)aiFail("batch 命令过多，请拆分执行");
   const before=aiCaptureState(),undoLen=undoStack.length,redoLen=redoStack.length,results=[];
@@ -111,7 +113,7 @@ function aiRunBatch(commands){
     if(!command||typeof command!=="object"||command.op==="batch"){
       aiRestoreState(before);activateHistory();aiFail("batch 第 "+(index+1)+" 条命令无效");
     }
-    const result=aiExecute(command);
+    const result=await aiExecuteRaw(command);
     if(!result.ok){
       aiRestoreState(before);activateHistory();
       aiFail("batch 第 "+(index+1)+" 条失败："+result.error);
@@ -133,6 +135,7 @@ function aiBuildCanvas(plan){
   if(plan.projectName&&!plan.projectId){const found=state.projects.find(p=>p.name===plan.projectName);if(found)project=found;else{project=createProject(plan.projectName);}}
   state.activeProjectId=project.id;
   let canvas=plan.canvasId?project.canvases.find(c=>c.id===plan.canvasId):null;
+  if(plan.canvasId&&!canvas)aiFail("未找到画布："+plan.canvasId);
   if(!canvas){canvas=createCanvas(plan.canvasName||plan.title||"AI 生成画布");}
   state.activeCanvasId=canvas.id;
   pushHistory();
@@ -203,7 +206,13 @@ function aiBuildCanvas(plan){
   }
 }
 function aiUpdateItem(ref,patch){
+  for(const key of ["x","y","w","h","fontSize"])if(Object.prototype.hasOwnProperty.call(patch||{},key)){
+    const n=Number(patch[key]);if(!Number.isFinite(n)||(["w","h","fontSize"].includes(key)&&n<=0))aiFail("字段 "+key+" 必须是有效数字且尺寸为正数");
+  }
+  if(!patch||typeof patch!=="object")aiFail("patch 必须是对象");
   const item=aiItem(ref);const allowed=["text","color","detail","annotation","x","y","w","h","collapsed","fontFamily","fontSize","underline","bold","jumpTo","previewOpen"];
+  for(const key of Object.keys(patch))if(!allowed.includes(key))aiFail("不支持的字段："+key);
+  if(patch.fontFamily&&!FONT_PRESETS[patch.fontFamily])aiFail("不支持的字体");
   for(const key of allowed)if(Object.prototype.hasOwnProperty.call(patch||{},key)){
     if(key==="previewOpen"&&item.type==="fileCard"){
       /* 修复：patch previewOpen 不能直接赋值，需走 togglePreviewMorph 正确设尺寸+动画 */
@@ -221,10 +230,14 @@ function aiUpdateItem(ref,patch){
   }
   aiCommit();return item;
 }
-function aiExecute(command){
+async function aiExecuteRaw(command){
   try{
     if(!command||typeof command!=="object")aiFail("命令必须是对象");
     const op=command.op||command.action;
+    for(const key of ['x','y','w','h','fontSize','size','width'])if(command[key]!==undefined&&(!Number.isFinite(Number(command[key]))||(['w','h','fontSize','size','width'].includes(key)&&Number(command[key])<=0)))aiFail('参数 '+key+' 无效');
+    if(command.fontFamily&&!FONT_PRESETS[command.fontFamily])aiFail('不支持的字体');
+    if(command.fontPreset&&!FONT_PRESETS[command.fontPreset])aiFail('不支持的字体');
+    if(op==='rename_canvas'&&(!command.canvasId||!command.name))aiFail('重命名需要 canvasId 和 name');
     let value;
     switch(op){
       case "snapshot":value=aiSnapshot();break;
@@ -233,23 +246,23 @@ function aiExecute(command){
       case "rename_project":{const project=aiProject(command.projectId||state.activeProjectId);if(!command.name)aiFail("项目名称不能为空");project.name=command.name;aiCommit();value={id:project.id,name:project.name};break;}
       case "create_canvas":aiActivate(command.projectId||state.activeProjectId);value=createCanvas(command.name||"AI 画布");break;
       case "rename_canvas":aiActivate(command.projectId||state.activeProjectId,command.canvasId);renameCanvas(command.canvasId,command.name);value={id:command.canvasId,name:command.name};break;
-      case "delete_project":if(command.confirm!==true)aiFail("删除项目需要 confirm: true");deleteProject(command.projectId||state.activeProjectId);value={};break;
-      case "delete_canvas":if(command.confirm!==true)aiFail("删除画布需要 confirm: true");aiActivate(command.projectId||state.activeProjectId,command.canvasId);deleteCanvas(command.canvasId);value={};break;
-      case "create_node":aiActivate(command.projectId||state.activeProjectId,command.canvasId||state.activeCanvasId);pushHistory();value=addMindNode(command.title||command.text||"未命名主题",command.parentId||null,command.color||null,command.x,command.y);value.detail=command.detail||command.explanation||"";aiCommit();break;
+      case "delete_project":if(command.confirm!==true)aiFail("删除项目需要 confirm: true");if(!await deleteProject(command.projectId||state.activeProjectId))aiFail("项目删除未完成");value={};break;
+      case "delete_canvas":if(command.confirm!==true)aiFail("删除画布需要 confirm: true");aiActivate(command.projectId||state.activeProjectId,command.canvasId);if(!await deleteCanvas(command.canvasId))aiFail("画布删除未完成");value={};break;
+      case "create_node":aiActivate(command.projectId||state.activeProjectId,command.canvasId||state.activeCanvasId);if(command.parentId&&aiItem(command.parentId).type!=="mindNode")aiFail("父级必须是节点");pushHistory();value=addMindNode(command.title||command.text||"未命名主题",command.parentId||null,command.color||null,command.x,command.y);value.detail=command.detail||command.explanation||"";aiCommit();break;
       case "create_note":aiActivate(command.projectId||state.activeProjectId,command.canvasId||state.activeCanvasId);pushHistory();value=addNote(command.x||0,command.y||0,command.markdown||command.text||"",command.color||state.noteColor);if(command.fontFamily&&FONT_PRESETS[command.fontFamily])value.fontFamily=command.fontFamily;if(Number.isFinite(Number(command.fontSize)))value.fontSize=clamp(Number(command.fontSize),10,28);if(command.underline)value.underline=true;if(command.bold)value.bold=true; /* E5: note.detail removed; I5-fix: 兑现文档承诺的排版参数 */aiCommit();break;
       case "create_attachment":aiActivate(command.projectId||state.activeProjectId,command.canvasId||state.activeCanvasId);pushHistory();{const file=aiRegisterSource(command.source||command);value=addFileCard(command.x||0,command.y||0,file.id);if(command.attachTo){const node=aiItem(command.attachTo);if(node.type!=="mindNode")aiFail("附件只能关联到导图节点");node.attachIds=Array.from(new Set([...(node.attachIds||[]),value.id]));}aiCommit();}break;
       case "create_stroke":{const points=command.points||[];if(points.length<2)aiFail("画笔至少需要两个坐标点");if(!points.every(p=>p&&Number.isFinite(Number(p.x))&&Number.isFinite(Number(p.y))))aiFail("画笔坐标必须是有限数字");pushHistory();value={id:uid++,type:"stroke",points:points.map(p=>({x:Number(p.x),y:Number(p.y)})),color:command.color||state.penColor,size:Number(command.size)||state.penSize,detail:command.detail||"",annotation:command.annotation||"",birth:performance.now()};state.items.push(value);aiCommit();break;}
-      case "create_connector":{if(!command.a||!command.b)aiFail("连接线需要 a 和 b 两个端点");pushHistory();value=addConnector(command.a,command.b);value.color=command.color||value.color;value.width=Number(command.width)||value.width;aiCommit();break;}
+      case "create_connector":{if(!command.a||!command.b)aiFail("连接线需要 a 和 b 两个端点");for(const endpoint of [command.a,command.b]){if(endpoint.noteId!=null)aiItem(endpoint.noteId);else if(!Number.isFinite(Number(endpoint.x))||!Number.isFinite(Number(endpoint.y)))aiFail("连接器端点坐标无效");}pushHistory();value=addConnector(command.a,command.b);value.color=command.color||value.color;value.width=Number(command.width)||value.width;aiCommit();break;}
       case "build_canvas":value=aiBuildCanvas(command.plan||command);break;
       case "update_item":pushHistory();value=aiUpdateItem(command.itemId||command.id,command.patch);break;
-      case "duplicate_item":duplicateItem(command.itemId||command.id);value={};break;
-      case "delete_item":deleteItem(command.itemId||command.id);value={id:command.itemId||command.id};break;
+      case "duplicate_item":aiItem(command.itemId||command.id);duplicateItem(command.itemId||command.id);value={};break;
+      case "delete_item":if(command.confirm!==true)aiFail("删除元素需要 confirm:true");aiItem(command.itemId||command.id);deleteItem(command.itemId||command.id);value={id:command.itemId||command.id};break;
       case "relate":pushHistory();value=aiRelation(aiItem(command.from).id,aiItem(command.to).id,command.type,command.annotation);aiCommit();break;
-      case "update_relation":{const link=state.links.find(l=>l.id===(command.linkId||command.id));if(!link)aiFail("未找到关系线");pushHistory();if(command.type&&RELATION_TYPES[command.type]){link.relationType=command.type;link.directional=!!RELATION_TYPES[command.type].directional;}if(Object.prototype.hasOwnProperty.call(command,"annotation"))link.annotation=command.annotation||"";if(command.level&&["normal","emphasis","highlight"].includes(command.level))link.level=command.level;if(command.shape&&["auto","curve","polyline","straight"].includes(command.shape))link.shape=command.shape;aiCommit();value=link;break;}
+      case "update_relation":{const link=state.links.find(l=>l.id===(command.linkId||command.id));if(!link)aiFail("未找到关系线");pushHistory();if(command.type&&!RELATION_TYPES[command.type])aiFail("无效关系类型");if(command.type&&RELATION_TYPES[command.type]){link.relationType=command.type;link.directional=!!RELATION_TYPES[command.type].directional;}if(Object.prototype.hasOwnProperty.call(command,"annotation"))link.annotation=command.annotation||"";if(command.level&&["normal","emphasis","highlight"].includes(command.level))link.level=command.level;if(command.shape&&["auto","curve","polyline","straight"].includes(command.shape))link.shape=command.shape;aiCommit();value=link;break;}
       case "attach":{const node=aiItem(command.nodeId),item=aiItem(command.itemId);if(node.type!=="mindNode"||item.type==="mindNode")aiFail("只能将非节点元素关联到导图节点");pushHistory();node.attachIds=Array.from(new Set([...(node.attachIds||[]),item.id]));aiCommit();value={nodeId:node.id,itemId:item.id};break;}
       case "detach":{const node=aiItem(command.nodeId),item=aiItem(command.itemId);if(node.type!=="mindNode")aiFail("关联目标必须是导图节点");pushHistory();node.attachIds=(node.attachIds||[]).filter(id=>id!==item.id);aiCommit();value={nodeId:node.id,itemId:item.id};break;}
       case "reparent_node":{const node=aiItem(command.nodeId),parent=command.parentId?aiItem(command.parentId):null;if(node.type!=="mindNode"||(parent&&parent.type!=="mindNode"))aiFail("父子关系只能用于导图节点");let cursor=parent;while(cursor){if(cursor.id===node.id)aiFail("不能把节点移动到自己的子树中");cursor=cursor.parentId&&state.items.find(it=>it.id===cursor.parentId);}pushHistory();const old=node.parentId&&state.items.find(it=>it.id===node.parentId);if(old)old.children=(old.children||[]).filter(id=>id!==node.id);node.parentId=parent?parent.id:null;if(parent)parent.children=Array.from(new Set([...(parent.children||[]),node.id]));aiCommit();value={nodeId:node.id,parentId:node.parentId};break;}
-      case "delete_relation":deleteItem(command.linkId||command.id);value={id:command.linkId||command.id};break;
+      case "delete_relation":if(command.confirm!==true)aiFail("删除关系需要 confirm:true");if(!state.links.some(l=>l.id===(command.linkId||command.id)))aiFail("未找到关系");deleteItem(command.linkId||command.id);value={id:command.linkId||command.id};break;
       /* ── 形变/展开控制（G5-AI v1.3）── */
       case "toggle_morph":{const it=aiItem(command.itemId||command.id);if(it.type!=="fileCard")aiFail("形变控制仅适用于附件卡片");togglePreviewMorph(it);value={itemId:it.id,previewOpen:it.previewOpen};break;}
       case "set_morph":{const it=aiItem(command.itemId||command.id);if(it.type!=="fileCard")aiFail("形变控制仅适用于附件卡片");const want=command.open!==undefined?!!command.open:command.previewOpen!==undefined?!!command.previewOpen:true;if(it.previewOpen!==want){togglePreviewMorph(it);}value={itemId:it.id,previewOpen:it.previewOpen};break;}
@@ -271,13 +284,39 @@ function aiExecute(command){
       case "exit_focus":exitFocus();value={};break;
       case "undo":undo();value={};break;
       case "redo":redo();value={};break;
-      case "batch":value=aiRunBatch(command.commands);break;
+      case "batch":value=await aiRunBatch(command.commands);break;
       default:aiFail("不支持的 AI 命令："+op);
     }
     return{ok:true,value};
   }catch(error){return{ok:false,error:error.message||String(error)};}
 }
-window.ZhijianAI=Object.freeze({version:ZHIJIAN_AI_API_VERSION,snapshot:aiSnapshot,execute:aiExecute,buildCanvas:plan=>aiExecute({op:"build_canvas",plan})});
-/* 不再监听可被任意同页脚本伪造的 zhijian:command 事件。
-   自动化应显式调用 window.ZhijianAI，调用方与用户可清楚看到入口和返回值。 */
-/* init() moved to app.js */
+let aiTransactionActive=false,aiQueue=Promise.resolve();
+const aiRequests=new Map();
+function aiCapabilities(){return {apiVersion:ZHIJIAN_AI_API_VERSION,schemaVersion:3,async:true,limits:AI_LIMITS,layouts:["logic","org","fishbone","timeline"],styles:Object.keys(STYLE_PRESETS),relations:Object.keys(RELATION_TYPES)};}
+function aiExecute(command){
+  if(command?.op==="capabilities")return Promise.resolve({ok:true,value:aiCapabilities()});
+  if(command?.op==="snapshot")return Promise.resolve({ok:true,value:aiSnapshot()});
+  const requestId=command?.requestId;
+  const signature=JSON.stringify(command);
+  if(requestId&&aiRequests.has(requestId)){const prior=aiRequests.get(requestId);return prior.signature===signature?prior.job:Promise.resolve({ok:false,error:"requestId 已用于其他命令"});}
+  const job=aiQueue.then(async()=>{
+    if(typeof L1Search!=="undefined")L1Search.clearPreview();
+    const before=aiCaptureState();aiTransactionActive=true;
+    const guard=e=>{e.preventDefault();e.stopImmediatePropagation();};
+    const guarded=['pointerdown','pointerup','keydown','input','drop','click'];for(const type of guarded)window.addEventListener(type,guard,true);
+    try{
+      const result=await aiExecuteRaw(command);
+      if(!result.ok)throw new Error(result.error);
+      aiTransactionActive=false;
+      if(!await saveState())throw new Error("保存失败，操作已回滚");
+      return {...result,value:PackageModel.clone(result.value??null),persisted:true};
+    }catch(e){
+      aiTransactionActive=true;aiRestoreState(before);aiTransactionActive=false;
+      const restored=await saveState();return {ok:false,error:e.message,persisted:restored,rolledBack:true};
+    }finally{aiTransactionActive=false;for(const type of guarded)window.removeEventListener(type,guard,true);}
+  });
+  aiQueue=job.catch(()=>{});
+  if(requestId){aiRequests.set(requestId,{signature,job});if(aiRequests.size>128)aiRequests.delete(aiRequests.keys().next().value);}
+  return job;
+}
+window.ZhijianAI=Object.freeze({version:ZHIJIAN_AI_API_VERSION,capabilities:aiCapabilities,snapshot:aiSnapshot,execute:aiExecute,buildCanvas:plan=>aiExecute({op:"build_canvas",plan})});

@@ -1,13 +1,16 @@
 {
   "name": "zhijian-weavision",
-  "version": "0.10.5",
-  "description": "织见 · 思维关系板 — Desktop App (K8.5)",
+  "version": "0.11.8",
+  "description": "织见 · 思维关系板 — Desktop App (L1.5d)",
   "main": "main.js",
   "scripts": {
     "start": "electron .",
     "build": "electron-builder",
     "build:portable": "electron-builder --win portable",
-    "build:nsis": "electron-builder --win nsis"
+    "build:nsis": "electron-builder --win nsis",
+    "prebuild": "node ../../scripts/build-ai-guide.cjs",
+    "prebuild:portable": "node ../../scripts/build-ai-guide.cjs",
+    "prebuild:nsis": "node ../../scripts/build-ai-guide.cjs"
   },
   "build": {
     "appId": "com.weavision.zhijian",
@@ -19,7 +22,10 @@
       "icon.png",
       "package-worker.js",
       "package-ipc.js",
-      "windows-icons.js"
+      "windows-icons.js",
+      "package-stream.js",
+      "package-stream-worker.js",
+      "skill-install.js"
     ],
     "extraResources": [
       {
@@ -51,7 +57,7 @@
       }
     ],
     "directories": {
-      "output": "../../发行版/K8.5"
+      "output": "../../发行版/L1.5d"
     },
     "fileAssociations": [
       {
@@ -90,6 +96,8 @@
   },
   "dependencies": {
     "adm-zip": "^0.6.0",
-    "level": "^10.0.0"
+    "level": "^10.0.0",
+    "archiver": "5.3.2",
+    "yauzl": "2.10.0"
   }
 }
