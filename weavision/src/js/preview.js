@@ -241,8 +241,11 @@ function syncPvDom(){
     if(zInputEl&&document.activeElement!==zInputEl&&zInputEl.value!==String(Math.round(zv*100)))zInputEl.value=String(Math.round(zv*100));
     const spX=(pv.x-state.camera.x)*z,spY=(pv.y-state.camera.y)*z;
     const spW=pv.w*z,spH=pv.h*z;
-    el.style.left=spX+"px";el.style.top=spY+"px";
-    el.style.width=spW+"px";el.style.height=spH+"px";
+    /* 覆盖层内缩 8px：四周让出一条边缘带交回 canvas，
+       使缩放手柄/拖动/点选仍好触发；层内内容保持原生交互（选中文字、上下滚动）。 */
+    const MORPH_MARGIN=8;
+    el.style.left=(spX+MORPH_MARGIN)+"px";el.style.top=(spY+MORPH_MARGIN)+"px";
+    el.style.width=Math.max(16,spW-MORPH_MARGIN*2)+"px";el.style.height=Math.max(16,spH-MORPH_MARGIN*2)+"px";
     const docxFitKey=Math.round(pv.w)+"x"+Math.round(pv.h);
     if(el.dataset.docxFitKey!==docxFitKey){el.dataset.docxFitKey=docxFitKey;fitDocxPreview(el);}
     /* 画布 zoom 实时同步：iframe/视频等多格式内容随 transform 等比缩放，

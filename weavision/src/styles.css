@@ -801,15 +801,16 @@ body.immersive #immersiveExitBtn{display:flex;align-items:center;gap:7px}
 #previewLayer .pv-morph{
   position:absolute;z-index:18;
   background:var(--surface);
-  border:1px solid var(--card-border);
+  /* 边框交给 canvas 绘制的卡片框；覆盖层由 JS 内缩 8px，
+     让出的边缘带交回 canvas 承接缩放手柄与拖动/点选 */
+  border:1px solid transparent;
   border-radius:var(--radius-lg);
   box-shadow:var(--shadow-md);
   overflow:auto;
   display:flex;flex-direction:column;
-  /* 预览覆盖层整块穿透指针：让框内点击落到 canvas，从而能选中元素、拖动与缩放。
-     此前 pointer-events:auto 会把框内事件全部吃掉，只有没被覆盖的边框线能操作。
-     需要交互的标题栏（.pv-morph-tools）单独恢复 auto。 */
-  pointer-events:none;
+  /* 内容区恢复可交互：可选中文字、可上下滚动。
+     缩放依然可用——见 preview.js 里该层整体内缩 8px。 */
+  pointer-events:auto;
   animation:fadeIn .18s ease;
 }
 #previewLayer .pv-morph-tools{height:32px;display:flex;align-items:center;gap:4px;padding:3px 6px;border-bottom:1px solid var(--card-border);background:var(--glass);flex:none;position:sticky;top:0;z-index:5;cursor:grab;user-select:none;touch-action:none;pointer-events:auto}
