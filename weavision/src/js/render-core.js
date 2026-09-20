@@ -26,6 +26,7 @@ function render(){
   if(state.focusMode){
     focusId=state.focusMode.id;
     focusPrimary=getRelated(focusId);
+    state.focusMode._relSet=focusPrimary; /* 供命中/框选/悬停过滤：被隐藏的元素不响应鼠标 */
   }
   ZhijianPerf.mark(perfFrame,"prepare");
   drawMindConnections(focusPrimary);
@@ -249,8 +250,8 @@ function render(){
       }
     }
   }
-  /* 超聚焦：中心高亮、四周压暗（世界坐标内绘制，自动跟随相机与缩放） */
-  if(state.focusMode&&state.focusMode.super)drawSuperFocusMask();
+  /* 聚焦/超聚焦的舞台灯光效：中心透亮、四周压暗（世界坐标内绘制，随相机自适应） */
+  if(state.focusMode)drawFocusSpotlight();
   ctx.restore();
   ZhijianPerf.mark(perfFrame,"canvas");
   /* 连接点 hover tooltip — DOM 实现（K5-fix: canvas 绘制在 restore 后用世界坐标=位置漂移，
@@ -359,24 +360,33 @@ function syncPvContentZoom(el,pv,z){
   /* 2) 视频/图片：object-fit:contain 随容器等比，无需额外处理 */
 }
 
-/* 超聚焦遮罩：中心方形亮区 + 四周压暗 + 柔光描边（在世界坐标内绘制，自动跟随相机） */
-function drawSuperFocusMask(){
-  const fm=state.focusMode;if(!fm||!fm.superBox)return;
-  const z=state.camera.zoom,b=fm.superBox;
-  const L=state.camera.x,T=state.camera.y,R=state.camera.x+W/z,Bt=state.camera.y+H/z;
-  const x0=Math.max(L,b.x),y0=Math.max(T,b.y),x1=Math.min(R,b.x+b.w),y1=Math.min(Bt,b.y+b.h);
-  if(x1<=x0||y1<=y0)return;
+/* 聚焦 / 超聚焦的"舞台灯"：中心透亮、四周向外压暗的圆形柔光（世界坐标内绘制，随相机缩放）。
+   —— 不再是方形框；按 F 聚焦即淡入显现，进入超聚焦时进一步收拢加强。
+   强度由 focusTransition（聚焦）与 fm._superT（超聚焦）两个动画量驱动。 */
+function drawFocusSpotlight(){
+  const fm=state.focusMode;if(!fm)return;
+  const z=state.camera.zoom;
+  const it=state.items.find(i=>i.id===fm.id);if(!it)return;
+  let cx,cy,r0;
+  if(fm.super&&fm.superBox){
+    const b=fm.superBox;cx=b.x+b.w/2;cy=b.y+b.h/2;r0=Math.min(b.w,b.h)*0.58;
+  }else{
+    const b=itemBounds(it);if(!b)return;
+    cx=b.x+b.w/2;cy=b.y+b.h/2;
+    r0=Math.max(b.w,b.h)*0.8+170;   /* 聚焦时圈更大，只做氛围，不切割画面 */
+  }
+  const t1=(typeof focusTransition==="number"?focusTransition:1);
+  const t2=fm._superT||0;
+  const alpha=0.13*t1+0.30*t2;      /* 聚焦只是轻微变化，超聚焦才是明显的聚光 */
+  if(alpha<=0.002)return;
+  const rr=Math.max(90,r0*(1-0.22*t2));  /* 超聚焦再往里收一点 */
+  const g=ctx.createRadialGradient(cx,cy,rr*0.5,cx,cy,rr*2.3);
+  g.addColorStop(0,"rgba(8,12,22,0)");
+  g.addColorStop(0.5,"rgba(8,12,22,"+(alpha*0.42).toFixed(3)+")");
+  g.addColorStop(1,"rgba(8,12,22,"+alpha.toFixed(3)+")");
   ctx.save();
-  ctx.fillStyle=state.dark?"rgba(0,0,0,.55)":"rgba(12,18,32,.46)";
-  if(y0>T)ctx.fillRect(L,T,R-L,y0-T);
-  if(Bt>y1)ctx.fillRect(L,y1,R-L,Bt-y1);
-  if(x0>L)ctx.fillRect(L,y0,x0-L,y1-y0);
-  if(R>x1)ctx.fillRect(x1,y0,R-x1,y1-y0);
-  const pad=8/z;
-  ctx.strokeStyle=state.dark?"rgba(150,180,255,.55)":"rgba(90,130,240,.5)";
-  ctx.lineWidth=2/z;
-  ctx.shadowColor="rgba(90,130,240,.6)";ctx.shadowBlur=28/z;
-  roundRectPath(ctx,x0-pad,y0-pad,x1-x0+pad*2,y1-y0+pad*2,16);ctx.stroke();
+  ctx.fillStyle=g;
+  ctx.fillRect(state.camera.x,state.camera.y,W/z,H/z);
   ctx.restore();
 }
 function updateFocusHud(){

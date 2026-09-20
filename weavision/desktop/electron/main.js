@@ -1,4 +1,4 @@
-const { app, BrowserWindow, shell, nativeTheme, ipcMain, dialog, Menu, nativeImage } = require("electron");
+const { app, BrowserWindow, shell, nativeTheme, ipcMain, dialog, Menu, nativeImage, Tray } = require("electron");
 const path = require("path");
 const fs = require("fs");
 const windowsIcons = require("./windows-icons");
@@ -166,6 +166,45 @@ function installFantinSkill() {
   }
 }
 
+/* K9: 常驻系统托盘图标 —— 窗口被切到别的桌面/最小化时，也能一眼看出应用仍在运行。
+   右键菜单：显示主窗口 / 设置 / 退出织见；双击图标回到主窗口。 */
+let tray = null;
+function trayIconPath() {
+  const dir = app.isPackaged ? path.join(process.resourcesPath, "icons") : path.join(__dirname, "icons");
+  const cands = [
+    path.join(dir, "clean-3.png"), path.join(dir, "clean-2.png"), path.join(dir, "clean-1.png"),
+    path.join(dir, "icon.png"), path.join(__dirname, "icon.png")
+  ];
+  for (const p of cands) { try { if (fs.existsSync(p)) return p; } catch (e) {} }
+  return null;
+}
+function showMainWindow() {
+  if (!win || win.isDestroyed()) { createWindow(); return; }
+  if (win.isMinimized()) win.restore();
+  win.show(); win.focus();
+}
+function createTray() {
+  if (tray) return;
+  try {
+    const ip = trayIconPath();
+    if (!ip) return;
+    let img = nativeImage.createFromPath(ip);
+    if (img.isEmpty()) return;
+    img = img.resize({ width: 16, height: 16 });
+    tray = new Tray(img);
+    tray.setToolTip("织见 Weavision");
+    tray.setContextMenu(Menu.buildFromTemplate([
+      { label: "显示主窗口", click() { showMainWindow(); } },
+      { label: "设置", click() {
+          showMainWindow();
+          if (win && !win.isDestroyed()) win.webContents.send("tray-open-settings");
+      } },
+      { type: "separator" },
+      { label: "退出织见", click() { isQuitting = true; app.quit(); } }
+    ]));
+    tray.on("double-click", () => showMainWindow());
+  } catch (e) { /* 托盘不可用时静默降级，不影响主功能 */ }
+}
 function createWindow() {
   win = new BrowserWindow({
     width: 1440,
@@ -673,6 +712,7 @@ if (!gotLock) {
     /* G8: 检查 argv 中是否有 .fantin 文件 */
     pendingFantinPath = extractFantinFromArgv(process.argv);
     createWindow();
+    createTray();   /* K9: 常驻托盘图标（右键：显示主窗口 / 设置 / 退出） */
     app.on("activate", () => {
       if (BrowserWindow.getAllWindows().length === 0) createWindow();
     });

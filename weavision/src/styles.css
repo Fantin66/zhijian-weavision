@@ -1691,6 +1691,9 @@ body.reduced-motion #bg-l1-drift .drift-d{
 #previewLayer,#detailReadLayer{z-index:5}
 #dockBar,#selbar,#ctxMenu{z-index:48}
 #focusHud{z-index:50}
+/* clear / glass 下画布铺满整个窗口（#board top:0），聚焦 HUD 会被顶栏(z-index:60)盖住，
+   因此这里下移一个顶栏高度 */
+[data-style="clear"] #focusHud,[data-style="glass"] #focusHud{top:calc(var(--topbar-h) + 18px)}
 #focusHud .focus-super-btn{background:var(--accent-soft);border-color:rgba(45,95,211,.3);color:var(--accent);font-weight:650}
 #focusHud .focus-super-btn:hover{background:rgba(45,95,211,.16)}
 

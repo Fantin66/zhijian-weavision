@@ -261,6 +261,21 @@ function _animateSuper(moves,dur,done){
   }
   requestAnimationFrame(step);
 }
+/* 超聚焦"聚光强度"动画（0→1 收拢加强 / →0 淡出）：驱动 drawFocusSpotlight 的强度与半径 */
+let _superTGen=0;
+function _animateSuperT(target,dur){
+  const fm=state.focusMode;if(!fm)return;
+  const gen=++_superTGen,t0=performance.now(),from=fm._superT||0;
+  function step(now){
+    if(gen!==_superTGen)return;
+    const cur=state.focusMode;if(!cur)return;
+    const p=Math.min(1,(now-t0)/dur),e=1-Math.pow(1-p,3);
+    cur._superT=from+(target-from)*e;
+    render();
+    if(p<1)requestAnimationFrame(step);else cur._superT=target;
+  }
+  requestAnimationFrame(step);
+}
 /* 生成"收拢但保持相对方位"的目标位置 */
 function _superMoves(){
   const fm=state.focusMode;if(!fm)return null;
@@ -306,7 +321,7 @@ function revertSuperLayout(){
 function toggleSuperFocus(){
   if(state.focusMode&&state.focusMode.super){exitSuperFocus();return;}
   if(!state.focusMode){toast("请先按 F 进入聚焦，再点「进入超聚焦」");return;}
-  if(applySuperLayout()){state.focusMode.super=true;render();if(typeof updateFocusHud==="function")updateFocusHud();}
+  if(applySuperLayout()){state.focusMode.super=true;_animateSuperT(1,320);render();if(typeof updateFocusHud==="function")updateFocusHud();}
 }
 /* 退出超聚焦 → 回到聚焦态（带回位动画） */
 function exitSuperFocus(){
@@ -314,7 +329,7 @@ function exitSuperFocus(){
   const fm=state.focusMode;
   const moves=[];
   if(fm.layoutBackup)for(const s of fm.layoutBackup){const n=state.items.find(i=>i.id===s.id);if(n)moves.push({it:n,fx:n.x,fy:n.y,tx:s.x,ty:s.y});}
-  fm.super=false;fm.superBox=null;fm.layoutType=null;fm.layoutBackup=null;
+  fm.super=false;fm.superBox=null;fm.layoutType=null;fm.layoutBackup=null;fm._superT=0;
   _animateSuper(moves,280,()=>{saveStateDebounced();if(typeof updateFocusHud==="function")updateFocusHud();});
   render();
   toast("已退出超聚焦");

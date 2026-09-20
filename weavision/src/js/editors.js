@@ -1537,10 +1537,20 @@ function marqueeWorldRect(d){
   const x1=Math.min(d.start.x,d.current.x),y1=Math.min(d.start.y,d.current.y);
   return{x:x1,y:y1,w:Math.abs(d.current.x-d.start.x),h:Math.abs(d.current.y-d.start.y)};
 }
+/* 聚焦/超聚焦模式的"可见集合"（一级邻域）：供命中/框选/悬停过滤，
+   避免被隐藏的元素仍然响应鼠标。render 每帧刷新 _relSet，这里兜底计算。 */
+function focusRelSet(){
+  const fm=state.focusMode;if(!fm)return null;
+  if(!fm._relSet)fm._relSet=getRelated(fm.id);
+  return fm._relSet;
+}
 function marqueeCandidates(d){
   const r=marqueeWorldRect(d),ids=[];
+  const fr=focusRelSet();
   for(const it of state.items){
     if((it.type==="mindNode"&&!isMindNodeVisible(it))||it.type==="connector")continue;
+    /* 聚焦/超聚焦下：被隐藏的非关联内容元素不参与框选 */
+    if(fr&&(it.type==="note"||it.type==="mindNode"||it.type==="fileCard")&&!fr.has(it.id))continue;
     const b=itemBounds(it);if(!b)continue;
     if(b.x<b.x+b.w&&b.x+b.w>=r.x&&b.x<=r.x+r.w&&b.y+b.h>=r.y&&b.y<=r.y+r.h)ids.push(it.id);
   }
@@ -1573,8 +1583,11 @@ function hitMindLinkPoint(wx,wy){
 }
 function hitTest(wx,wy){
   /* 内容元素优先；关系线只在精准命中真实曲线时才被选中。 */
+  const fr=focusRelSet();
   for(let i=state.items.length-1;i>=0;i--){
     const it=state.items[i];
+    /* 聚焦/超聚焦下：被隐藏的非关联内容元素不可命中 */
+    if(fr&&(it.type==="note"||it.type==="mindNode"||it.type==="fileCard")&&!fr.has(it.id))continue;
     if(it.type==="note"){
       if(wx>=it.x&&wx<=it.x+it.w&&wy>=it.y&&wy<=it.y+it.h) return it;
     }else if(it.type==="mindNode"){
@@ -1596,8 +1609,11 @@ function hitTest(wx,wy){
 }
 /* 悬停预览只跟随元素本体，避免选中元素时边框在邻近节点间漂移。 */
 function hoverHit(wx,wy){
+  const fr=focusRelSet();
   for(let i=state.items.length-1;i>=0;i--){
     const it=state.items[i];
+    /* 聚焦/超聚焦下：被隐藏的非关联内容元素不产生悬停反馈 */
+    if(fr&&(it.type==="note"||it.type==="mindNode"||it.type==="fileCard")&&!fr.has(it.id))continue;
     if(it.type==="note"){
       const m=2/state.camera.zoom;
       if(wx>=it.x-m&&wx<=it.x+it.w+m&&wy>=it.y-m&&wy<=it.y+it.h+m) return it;
