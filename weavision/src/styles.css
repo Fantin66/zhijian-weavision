@@ -806,10 +806,13 @@ body.immersive #immersiveExitBtn{display:flex;align-items:center;gap:7px}
   box-shadow:var(--shadow-md);
   overflow:auto;
   display:flex;flex-direction:column;
-  pointer-events:auto;
+  /* 预览覆盖层整块穿透指针：让框内点击落到 canvas，从而能选中元素、拖动与缩放。
+     此前 pointer-events:auto 会把框内事件全部吃掉，只有没被覆盖的边框线能操作。
+     需要交互的标题栏（.pv-morph-tools）单独恢复 auto。 */
+  pointer-events:none;
   animation:fadeIn .18s ease;
 }
-#previewLayer .pv-morph-tools{height:32px;display:flex;align-items:center;gap:4px;padding:3px 6px;border-bottom:1px solid var(--card-border);background:var(--glass);flex:none;position:sticky;top:0;z-index:5;cursor:grab;user-select:none;touch-action:none}
+#previewLayer .pv-morph-tools{height:32px;display:flex;align-items:center;gap:4px;padding:3px 6px;border-bottom:1px solid var(--card-border);background:var(--glass);flex:none;position:sticky;top:0;z-index:5;cursor:grab;user-select:none;touch-action:none;pointer-events:auto}
 #previewLayer .pv-morph-tools:active{cursor:grabbing}
 #previewLayer .pv-morph-tools button{cursor:pointer}
 #previewLayer .pv-morph-tools .pv-morph-name{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:10px;font-weight:650;color:var(--ink-dim)}

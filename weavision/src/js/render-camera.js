@@ -125,6 +125,8 @@ function gazeAtSelection(){
   setTimeout(function(){zoomPctEl.textContent="100%";},300);
 }
 function toggleFocus(){
+  /* 超聚焦态下按 F：只退回聚焦态（还原重排，保留聚焦与视角） */
+  if(state.focusMode&&state.focusMode.super){revertSuperLayout();state.focusMode.super=false;render();saveStateDebounced();toast("已回到聚焦");return;}
   if(state.focusMode){exitFocus();return;}
   const s=selectedItem();
   if(!s||s.type==="link"||s.type==="mindLink"){toast("请先选中一个内容元素");return;}
@@ -167,6 +169,8 @@ function enterFocus(id){
 }
 function exitFocus(){
   if(!state.focusMode)return;
+  /* 超聚焦态退出：先还原重排，避免布局残留 */
+  if(state.focusMode.super)revertSuperLayout();
   /* 恢复折叠状态与原视角 */
   const bak=state.focusMode.collapsedBackup||{};
   for(const id in bak){
@@ -184,6 +188,116 @@ function exitFocus(){
   /* C12: 退出聚焦 — 相机平滑回归，对称化进入动画 */
   if(cameraBak) state.camera=cameraBak;
   render();
+}
+
+/* ============================================================
+   超聚焦（Super Focus）
+   —— 在聚焦基础上，把「焦点 + 一级邻域」就地重排为清晰易读的布局；
+      再按 Shift+F 退出并原样还原（作用于真实坐标 + 快照恢复）。
+   第一性原则：清晰、好看、易读。
+   · 纯节点且父子关系清晰 → 以焦点为中心的二分（上游一侧 / 下游一侧）
+   · 混合或交叉关系       → 以焦点为中心的环形（确定性，避免交叉）
+============================================================ */
+function _superNeighbors(centerId){
+  const rel=getRelated(centerId);
+  const list=[];
+  for(const id of rel){
+    if(id===centerId)continue;
+    const it=state.items.find(i=>i.id===id);
+    if(!it||it.type==="stroke"||it.type==="connector")continue;
+    list.push(it);
+  }
+  return list;
+}
+/* 纵向排一列（二分布局用）；toRight=true 表示该列在焦点右侧，按左边缘对齐 edgeX */
+function _superColumn(list,edgeX,cy,toRight){
+  if(!list.length)return;
+  const gap=36;
+  const hs=list.map(n=>itemBounds(n).h);
+  const total=hs.reduce((a,b)=>a+b,0)+gap*(list.length-1);
+  let y=cy-total/2;
+  list.forEach((n,i)=>{
+    const nb=itemBounds(n);
+    n.x=Math.round(toRight?edgeX:edgeX-nb.w);
+    n.y=Math.round(y);
+    y+=hs[i]+gap;
+  });
+}
+/* 视角适配：把「焦点 + 邻域」整体居中并缩放到可见 */
+function _superFitCamera(center,others){
+  let minX=1e9,minY=1e9,maxX=-1e9,maxY=-1e9;
+  for(const n of [center,...others]){const b=itemBounds(n);if(!b)continue;minX=Math.min(minX,b.x);minY=Math.min(minY,b.y);maxX=Math.max(maxX,b.x+b.w);maxY=Math.max(maxY,b.y+b.h);}
+  if(minX>maxX)return;
+  const pad=90,w=maxX-minX+pad*2,h=maxY-minY+pad*2;
+  const nz=clamp(Math.min(state.camera.zoom,Math.min(W/w,H/h)),0.3,1.4);
+  animateCamera((minX+maxX)/2-W/2/nz,(minY+maxY)/2-H/2/nz,nz);
+}
+/* 应用超聚焦重排（首次调用记录快照，供原样还原） */
+function applySuperLayout(){
+  const fm=state.focusMode;if(!fm)return false;
+  const center=state.items.find(i=>i.id===fm.id);if(!center)return false;
+  const others=_superNeighbors(fm.id);
+  if(!others.length){toast("该元素没有关联内容，无法超聚焦");return false;}
+  if(!fm.layoutBackup){
+    const bak=[];
+    for(const n of [center,...others])bak.push({id:n.id,x:n.x,y:n.y});
+    fm.layoutBackup=bak;
+  }
+  const GAP=56;
+  const cb=itemBounds(center),cx=cb.x+cb.w/2,cy=cb.y+cb.h/2;
+  const allNodes=others.every(n=>n.type==="mindNode");
+  const parentLinked=others.every(n=>n.parentId===fm.id||center.parentId===n.id);
+  if(allNodes&&parentLinked){
+    /* 二分：上游（父）在左，下游（子）在右 */
+    _superColumn(others.filter(n=>center.parentId===n.id),cb.x-GAP,cy,false);
+    _superColumn(others.filter(n=>n.parentId===fm.id),cb.x+cb.w+GAP,cy,true);
+    fm.layoutType="bisect";
+  }else{
+    /* 环形：以焦点为圆心均匀分布（确定性、易读） */
+    const R=Math.max(250,130+others.length*30);
+    const n=others.length;
+    others.forEach((it,i)=>{
+      const ang=-Math.PI/2+i*(2*Math.PI/n);
+      const nb=itemBounds(it);
+      it.x=Math.round(cx+Math.cos(ang)*R-nb.w/2);
+      it.y=Math.round(cy+Math.sin(ang)*R-nb.h/2);
+    });
+    fm.layoutType="ring";
+  }
+  _superFitCamera(center,others);
+  return true;
+}
+/* 还原重排坐标（保留聚焦态本身） */
+function revertSuperLayout(){
+  const fm=state.focusMode;if(!fm||!fm.layoutBackup)return;
+  for(const s of fm.layoutBackup){
+    const n=state.items.find(i=>i.id===s.id);
+    if(n){n.x=s.x;n.y=s.y;}
+  }
+  fm.layoutBackup=null;fm.layoutType=null;
+}
+/* Shift+F：进入 / 退出超聚焦 */
+function toggleSuperFocus(){
+  if(state.focusMode&&state.focusMode.super){exitSuperFocus();return;}
+  const s=selectedItem();
+  const targetId=state.focusMode?state.focusMode.id:(s&&s.id);
+  if(targetId===undefined||targetId===null){toast("请先选中一个内容元素");return;}
+  if(!state.focusMode)enterFocus(targetId);
+  if(!state.focusMode)return;
+  if(applySuperLayout()){
+    state.focusMode.super=true;
+    render();
+    toast("超聚焦（"+(state.focusMode.layoutType==="bisect"?"二分":"环形")+"重排）· Shift+F 退出 · F 回到聚焦");
+  }
+}
+function exitSuperFocus(){
+  if(!state.focusMode||!state.focusMode.super)return;
+  revertSuperLayout();
+  state.focusMode.super=false;
+  /* 用户约定：Shift+F 从超聚焦直接回到非聚焦态 */
+  exitFocus();
+  saveStateDebounced();
+  toast("已退出超聚焦");
 }
 
 /* camera 平滑动画 */

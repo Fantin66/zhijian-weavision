@@ -81,7 +81,7 @@ const state={
   hover:null,
   multiSel:[],           /* Shift+点击多选的元素 id 列表 */
   links:[],              /* 自由连接：[{id, aId, bId}] 元素之间的连接线 */
-  focusMode:null,        /* 聚焦模式：{id, collapsedBackup:{id:bool}} */
+  focusMode:null,        /* 聚焦模式：{id, collapsedBackup, cameraBackup, super?, layoutBackup?, layoutType?}（super=true 即超聚焦） */
   layoutType:"logic",    /* 排布模板：logic 逐级向右 / both 左右分布 / fourway 上下左右 /
                             org 纯向下 / u U型环绕 / fishbone 鱼骨形 / timeline 时间轴 /
                             left 逐级向左 / brace 括号图 */

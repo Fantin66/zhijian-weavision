@@ -569,10 +569,13 @@ document.addEventListener("keydown",e=>{
       if(!sb)return;
       const cx=sb.x+sb.w/2,cy=sb.y+sb.h/2;
       let best=null,bestDist=Infinity;
+      /* 聚焦/超聚焦模式下：方向键只在一级邻域内切换——否则会选中被隐藏的非关联元素 */
+      const focusSet=state.focusMode?getRelated(state.focusMode.id):null;
       for(const it of state.items){
         if(it.id===sel.id)continue;
         if(it.type!=="mindNode"&&it.type!=="note"&&it.type!=="fileCard")continue;
         if(it.type==="mindNode"&&!isMindNodeVisible(it))continue;
+        if(focusSet&&!focusSet.has(it.id))continue;
         const b=itemBounds(it);if(!b)continue;
         const dx=(b.x+b.w/2)-cx,dy=(b.y+b.h/2)-cy;
         /* 方向投影必须为正（在目标方向上） */
@@ -655,6 +658,8 @@ document.addEventListener("keydown",e=>{
   if(e.key==="b"&&!e.ctrlKey&&!e.metaKey&&!e.altKey){e.preventDefault();if(state.tool==="marquee"){state.tool="select";board.className="mode-select";renderToolOptions();toast("已退出框选");}else{state.tool="marquee";board.className="mode-marquee";renderToolOptions();toast("框选模式");}return;}
   if(e.key==="g"&&!e.ctrlKey&&!e.metaKey&&!e.altKey){e.preventDefault();gazeAtSelection();return;}
   if(e.key==="y"&&!e.ctrlKey&&!e.metaKey&&!e.altKey){e.preventDefault();fitAll();return;}
+  /* Shift+F：超聚焦（进入 / 退出）；F：聚焦（超聚焦态下按 F 先退回聚焦态） */
+  if(e.shiftKey&&!e.ctrlKey&&!e.metaKey&&!e.altKey&&e.key.toLowerCase()==="f"){e.preventDefault();toggleSuperFocus();return;}
   if(e.key==="f"&&!e.ctrlKey&&!e.metaKey&&!e.altKey){e.preventDefault();toggleFocus();return;}
   /* J 键：跃迁 */
   if(e.key==="j"&&!e.ctrlKey&&!e.metaKey&&!e.altKey){e.preventDefault();openJump();return;}
@@ -1042,7 +1047,7 @@ function showModal(title,bodyHtml,actions){
     const b=document.createElement("button");
     b.className="modal-btn "+(a.primary?"primary":"secondary");
     b.textContent=a.label;
-    b.addEventListener("click",async()=>{b.disabled=true;try{const result=a.onClick?await a.onClick():undefined;if(result!==false)hideModal();}catch(e){toast(e.message||"操作失败");}finally{b.disabled=false;}});
+    b.addEventListener("click",async()=>{b.disabled=true;try{const result=a.onClick?await a.onClick():undefined;if(result!==false)hideModal();}catch(e){/* 回调抛错也必须关闭弹窗：否则弹窗滞留在 .show 状态，键盘监听会吞掉除 Esc 外的所有快捷键 */toast(e.message||"操作失败");hideModal();}finally{b.disabled=false;}});
     actEl.appendChild(b);
   }
   /* 绑定关闭按钮 */

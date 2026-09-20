@@ -80,24 +80,26 @@ board.addEventListener("wheel",e=>{
      内部滚动由各自容器原生接管，不拦截、不触发画布平移/缩放 */
   const t=e.target;
   if(t&&t.closest&&t.closest(".pv-morph-content,.pv-body,#dockSub,#noteEditor,#notePreview,#detailPanel,#menuDrop,#fullscreenView,#dockBar .dock-inner,#searchResults")) return;
-  e.preventDefault();
-  ++_cameraAnimation;
-  state._camInteracting=true;clearTimeout(_camTimer);
-  _camTimer=setTimeout(function(){state._camInteracting=false;requestRender();},80);
   const bxy=boardXY(e.clientX,e.clientY);
   /* 便签非编辑态滚动：鼠标悬停在内容已溢出的便签上时，滚轮用于滚动
      该便签内部文本（it.scrollY），而不是缩放/平移画布。
-     使非编辑状态也能上下滚动查看全部内容（此前只有双击进编辑态才能滚）。 */
+     ⚠️ 必须放在设置相机交互标志（_camInteracting）之前并直接 return——
+     否则会触发"跳过 DOM 同步 + 预览占位"的相机态，导致其它元素/附件闪动。 */
   {
     const wp=s2w(bxy.x,bxy.y);
     const hi=hitTest(wp.x,wp.y);
     if(hi&&hi.type==="note"&&(hi._scrollMax||0)>0){
+      e.preventDefault();
       const dir=e.deltaY>0?1:-1;
       const ns=clamp(Math.round((hi.scrollY||0)+dir),0,hi._scrollMax);
       if(ns!==hi.scrollY){hi.scrollY=ns;requestRender();}
       return;
     }
   }
+  e.preventDefault();
+  ++_cameraAnimation;
+  state._camInteracting=true;clearTimeout(_camTimer);
+  _camTimer=setTimeout(function(){state._camInteracting=false;requestRender();},80);
   /* Windows Precision Touchpad 会送出从很小到 100+ 的连续像素值，
      不能再用 deltaY<40 判断。只让 ctrl+wheel（捏合）和离散鼠标滚轮缩放；
      双指纵/横滑一律平移画布。 */
