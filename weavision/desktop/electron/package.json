@@ -58,7 +58,7 @@
       }
     ],
     "directories": {
-      "output": "../../发行版/M1.10"
+      "output": "../../../发行版/M1.10"
     },
     "fileAssociations": [
       {
@@ -81,6 +81,7 @@
       "icon": "icon.png"
     },
     "nsis": {
+      "artifactName": "zhijian-weavision-setup-${version}.exe",
       "oneClick": false,
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
@@ -88,7 +89,7 @@
       "shortcutName": "织见"
     },
     "portable": {
-      "artifactName": "织见-便携版-${version}.exe"
+      "artifactName": "zhijian-weavision-portable-${version}.exe"
     }
   },
   "devDependencies": {
