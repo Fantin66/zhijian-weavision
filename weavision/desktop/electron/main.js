@@ -192,7 +192,7 @@ function createWindow() {
   /* G9: 打包后用 extraResources 路径，开发时用相对路径 */
   const htmlPath = app.isPackaged
     ? path.join(process.resourcesPath, "index.html")
-    : path.join(__dirname, "../../织见-思维关系板-K6.html");
+    : path.join(__dirname, "../../index.html");
   win.loadFile(htmlPath);
 
   /* I5-fix: 外链只放行 http(s)（file://、ms-msdt: 等协议一律不开），页内顶层导航一律拦下转外开 */
