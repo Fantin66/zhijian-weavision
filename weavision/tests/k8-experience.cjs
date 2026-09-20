@@ -19,7 +19,7 @@ app.whenReady().then(async()=>{
   for(const [key,value] of Object.entries({'get-version':'0.11.0','get-system-theme':false,'get-open-file':null,'set-taskbar-icon':{ok:true},'set-fantin-icon':{ok:true},'quit-modal-ready':true}))ipcMain.handle(key,()=>value);
   win=new BrowserWindow({show:false,width:1440,height:900,webPreferences:{offscreen:true,preload:resources?path.join(resources,'app.asar/preload.js'):path.join(root,'weavision/desktop/electron/preload.js'),contextIsolation:true,nodeIntegration:false,backgroundThrottling:false}});
   win.webContents.on('console-message',(_e,level,message)=>{if(level>=3)errors.push(message);});
-  await win.loadFile(resources?path.join(resources,'index.html'):path.join(root,'weavision/织见-思维关系板-K6.html'));
+  await win.loadFile(resources?path.join(resources,'index.html'):path.join(root,'weavision/index.html'));
   const result=await win.webContents.executeJavaScript(`(async()=>{
    const wait=ms=>new Promise(r=>setTimeout(r,ms)),assert=(v,m)=>{if(!v)throw new Error(m)};
    while(typeof idb==='undefined'||!idb||!state.projects.length)await wait(50);

@@ -14,7 +14,7 @@ app.whenReady().then(async()=>{
   win=new BrowserWindow({show:false,width:1440,height:900,webPreferences:{offscreen:true,preload:resources?path.join(resources,'app.asar/preload.js'):path.join(base,'desktop/electron/preload.js'),contextIsolation:true,nodeIntegration:false,backgroundThrottling:false}});
   require(resources?path.join(resources,'app.asar/package-stream.js'):path.join(base,'desktop/electron/package-stream.js')).install({ipcMain,app,getWindow:()=>win,dialog:{showSaveDialog:async()=>({filePath:path.join(profile,'roundtrip.fantin')}),showOpenDialog:async()=>({filePaths:[path.join(profile,'roundtrip.fantin')]})}});
   win.webContents.on('console-message',(_e,l,m)=>{if(l>=3)errors.push(m)});
-  await win.loadFile(resources?path.join(resources,'index.html'):path.join(base,'织见-思维关系板-K6.html'));
+  await win.loadFile(resources?path.join(resources,'index.html'):path.join(base,'index.html'));
   const result=await win.webContents.executeJavaScript(`(async()=>{
     const wait=ms=>new Promise(r=>setTimeout(r,ms)),passed=[];
     function assert(v,m){if(!v)throw new Error(m);passed.push(m);}

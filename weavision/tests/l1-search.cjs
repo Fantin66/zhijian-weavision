@@ -3,7 +3,7 @@ const base=path.resolve(__dirname,'..'),resources=process.argv[2],out=path.resol
 app.whenReady().then(async()=>{let win;const errors=[];try{
 for(const [key,value]of Object.entries({'get-version':'0.11.1','get-system-theme':false,'get-open-file':null,'set-taskbar-icon':{ok:true},'set-fantin-icon':{ok:true},'quit-modal-ready':true}))ipcMain.handle(key,()=>value);
 win=new BrowserWindow({show:false,width:1440,height:960,webPreferences:{offscreen:true,preload:resources?path.join(resources,'app.asar/preload.js'):path.join(base,'desktop/electron/preload.js'),contextIsolation:true,nodeIntegration:false,backgroundThrottling:false}});win.webContents.on('console-message',(_e,l,m)=>{if(l>=3)errors.push(m)});
-await win.loadFile(resources?path.join(resources,'index.html'):path.join(base,'织见-思维关系板-K6.html'));
+await win.loadFile(resources?path.join(resources,'index.html'):path.join(base,'index.html'));
 const result=await win.webContents.executeJavaScript(`(async()=>{const wait=ms=>new Promise(r=>setTimeout(r,ms)),passed=[],assert=(v,m)=>{if(!v)throw new Error(m);passed.push(m)};
 while(!idb||!state.projects.length||document.getElementById('splashScreen'))await wait(40);
 document.getElementById('licenseModal')?.remove();document.querySelectorAll('.welcome-overlay').forEach(e=>e.remove());

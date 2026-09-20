@@ -7,7 +7,7 @@ app.whenReady().then(async()=>{
  try{
   for(const [key,value] of Object.entries({'get-version':'0.11.0','get-system-theme':false,'get-open-file':null,'set-taskbar-icon':{ok:true},'set-fantin-icon':{ok:true},'quit-modal-ready':true}))ipcMain.handle(key,()=>value);
   win=new BrowserWindow({show:false,width:1440,height:900,webPreferences:{offscreen:true,backgroundThrottling:false,preload:path.join(root,'weavision/desktop/electron/preload.js'),contextIsolation:true}});
-  await win.loadFile(path.join(root,'weavision/织见-思维关系板-K6.html'));
+  await win.loadFile(path.join(root,'weavision/index.html'));
   const result=await win.webContents.executeJavaScript(`(async()=>{
    const wait=ms=>new Promise(r=>setTimeout(r,ms));while(document.getElementById('splashScreen'))await wait(20);document.querySelector('#licenseModal button')?.click();await wait(300);
    const results=[];let reads=0;const read=getBlob;getBlob=function(...args){reads++;return read(...args)};

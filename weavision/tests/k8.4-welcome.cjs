@@ -2,7 +2,7 @@
 const {app,BrowserWindow,ipcMain}=require('electron');
 const fs=require('fs'),path=require('path'),os=require('os');
 const root=path.resolve(__dirname,'../..'),resources=process.argv[2];
-const html=resources?path.join(resources,'index.html'):path.join(root,'weavision/织见-思维关系板-K6.html');
+const html=resources?path.join(resources,'index.html'):path.join(root,'weavision/index.html');
 const markup=fs.readFileSync(html,'utf8').split('<!-- G1 启动动画 -->')[1].split('<header')[0];
 const out=path.join(root,'out/k8.4-validation');fs.mkdirSync(out,{recursive:true});
 app.setPath('userData',fs.mkdtempSync(path.join(os.tmpdir(),'zhijian-welcome-')));
