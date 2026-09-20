@@ -12,6 +12,7 @@
 - links：id/aId/bId/relationType/directional/annotation/sourceRef。related 无向；supports、causes、contradicts、evidence 有向。两端相反的有向关系不能合并。
 - sourceRef：fileId/name/quote/page/contentHash/anchor(start,end,prefix,suffix)。page 从 1 开始；anchor 是原文选区，不是已核实的事实。来源版本改变时需再次核对引文。
 - jumpTo：projectId/canvasId/itemId；旧包可能仅存 canvasId 字符串。externalJump 保存未随包导出的原始目标，status:unresolved；不要据此猜测导入后的新 ID。
+- jumpToCanvasName：写入时按画布名指定的跃迁，解析成功后会被 jumpTo 取代。若出现在包里，说明目标画布当时不存在，属于未解析跃迁，必须报告，不能当作有效跳转。
 - previews 中 fileId 也引用附件，不能遗漏。
 - readingPaths：id/name/steps；每步 canvasId/itemId。单画布包之外步骤带 unresolved:true，完整项目导入时重映射 ID。
 

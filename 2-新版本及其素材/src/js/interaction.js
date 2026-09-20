@@ -2,6 +2,11 @@
 /* ============================================================
    指针交互
 ============================================================ */
+/* 资源库多选状态。放在文件顶部：renderFileGroups 可能在模块顶层初始化阶段就被调用，
+   若声明留在文件中后段会撞上 TDZ（let 尚未初始化）。 */
+let libSel=new Set();   /* 选中的文件 id */
+let libAnchor=null;     /* Shift 区间的锚点文件 id */
+let libOrder=[];        /* 当前渲染出的文件顺序 */
 /* 记录指针屏幕坐标，供悬浮编辑器跟随定位 */
 canvas.addEventListener("pointermove",e=>{lastPointer={x:e.clientX,y:e.clientY};},{passive:true});
 canvas.addEventListener("pointerdown",onPointerDown);
@@ -586,13 +591,17 @@ async function importFiles(fileList,folderId){
         f.thumb=bmp;
       }catch(err){console.warn("thumb fail",err);}
     }
+    /* L5: 同步落盘到材料库，让导入的材料在文件系统里直接可见 */
+    if(typeof L1Material!=="undefined"&&kind!=="link"){
+      try{await L1Material.mirrorFile(f,destinationProject);}catch(err){console.warn("material mirror fail",err);}
+    }
     added++;
   }
   renderFileGroups();
   render();saveStateDebounced();
   toast("已导入 "+added+" 个文件"+(failedWrites.size?"；部分附件尚未保存，请重试保存":""));
 }
-function removeFile(id){
+function removeFile(id,silent){
   /* C2 修复：删除文件时撤销其缓存的 Object URL，避免内存泄漏。 */
   const removed=state.files.find(f=>f.id===id);
   if(removed&&removed._url){try{URL.revokeObjectURL(removed._url);}catch(e){}removed._url=null;}
@@ -618,6 +627,7 @@ function removeFile(id){
     const tx=idb.transaction("files","readwrite");
     if(!state.projects.some(p=>p.files.some(f=>f.id===id)))tx.objectStore("files").delete(id);
   }catch(e){}
+  if(silent)return;            /* 批量删除时由调用方统一收尾，避免逐个渲染与弹 toast */
   renderFileGroups();render();saveStateDebounced();
   toast("已删除文件");
 }
@@ -638,10 +648,50 @@ function folderContains(folderId,possibleChildId){
   while(cur&&guard++<30){if(cur.parentId===folderId)return true;cur=state.folders.find(f=>f.id===cur.parentId);}
   return false;
 }
-function moveLibraryFile(fileId,folderId){
+function moveLibraryFile(fileId,folderId,silent){
   const file=state.files.find(f=>f.id===fileId);if(!file)return;
-  file.folderId=folderId||null;renderFileGroups();saveStateDebounced();
+  file.folderId=folderId||null;
+  if(silent)return;            /* 批量移动时由调用方统一收尾 */
+  renderFileGroups();saveStateDebounced();
   toast("已移动到"+(folderId?"「"+folderPathName(state.folders.find(f=>f.id===folderId))+"」":"「未分类」"));
+}
+/* ── 资源库多选 ──────────────────────────────────────────────
+   选中集与锚点都存在模块级变量里（不落盘）：文件 id 在删除/重命名后会失效，
+   持久化反而会留下悬空选择。渲染顺序另存一份，供 Shift 区间选取使用。
+   （libSel / libAnchor / libOrder 三个变量声明在文件顶部。） */
+function libSelCount(){return libSel.size;}
+function libPruneSelection(){ /* 清理已被删除的 id */
+  const alive=new Set(state.files.map(f=>f.id));
+  for(const id of [...libSel])if(!alive.has(id))libSel.delete(id);
+}
+function libClearSelection(){if(libSel.size)libSel.clear();libAnchor=null;}
+function libSelectOnly(id){libSel.clear();libSel.add(id);libAnchor=id;}
+function libToggle(id){
+  if(libSel.has(id))libSel.delete(id);else libSel.add(id);
+  libAnchor=id;
+}
+function libSelectRange(id){
+  const a=libOrder.indexOf(libAnchor),b=libOrder.indexOf(id);
+  if(a<0||b<0){libSelectOnly(id);return;}
+  libSel.clear();
+  for(let i=Math.min(a,b);i<=Math.max(a,b);i++)libSel.add(libOrder[i]);
+}
+/* 批量删除：逐项静默清理，最后一次渲染 + 一条 toast */
+function removeFilesBatch(ids){
+  const list=(ids||[]).filter(id=>state.files.some(f=>f.id===id));
+  if(!list.length)return;
+  for(const id of list)removeFile(id,true);
+  renderFileGroups();render();saveStateDebounced();
+  toast("已删除 "+list.length+" 个文件");
+}
+/* 批量移动到某个文件夹（folderId 传 null 即根级） */
+function moveFilesBatch(ids,folderId){
+  const list=(ids||[]).filter(id=>state.files.some(f=>f.id===id));
+  if(!list.length)return;
+  for(const id of list)moveLibraryFile(id,folderId,true);
+  renderFileGroups();saveStateDebounced();
+  const where=folderId?("「"+folderPathName(state.folders.find(f=>f.id===folderId))+"」"):"「未分类」";
+  toast("已把 "+list.length+" 个文件移动到"+where);
 }
 /* I5-fix: showMoveFile 零调用方（由 app.js showMoveFileMenu 取代），已删除 */
 /* 删除文件夹（文件移到根级） */
@@ -771,7 +821,23 @@ function renderSidePanel(){
   const fc=document.getElementById("file-count");if(fc)fc.textContent=state.files.length;
   renderFileGroups();
 }
+/* 点空白/画布时收起资源库多选（只绑一次） */
+let libDismissBound=false;
+function ensureLibSelectionDismiss(){
+  if(libDismissBound)return;libDismissBound=true;
+  const drop=()=>{if(libSel.size){libClearSelection();renderFileGroups();}};
+  /* 侧栏空白区域 */
+  fileGroups.addEventListener("mousedown",e=>{if(e.target===fileGroups)drop();});
+  /* 点画布 */
+  document.getElementById("canvas").addEventListener("mousedown",drop);
+  /* Esc 取消多选 */
+  document.addEventListener("keydown",e=>{if(e.key==="Escape"&&libSel.size)drop();});
+}
 function renderFileGroups(){
+  libOrder=[];            /* 重建渲染顺序（Shift 区间选取依赖它） */
+  libPruneSelection();    /* 文件可能已被删除，清掉悬空选择 */
+  ensureLibSelectionDismiss();
+  ensureLibAutoScroll();
   /* 先渲染文件夹列表，再渲染根级文件 */
   fileGroups.innerHTML="";
   if(!state.files.length&&!state.folders.length){
@@ -794,6 +860,17 @@ function renderFileGroups(){
     if(fileId)moveLibraryFile(fileId,null);
     else if(folderId){const folder=state.folders.find(f=>f.id===folderId);if(folder){folder.parentId=null;renderFileGroups();saveStateDebounced();toast("文件夹已移到根级");}}
   });
+  /* 多选计数做成操作栏右侧的小胶囊。
+     原先它是一整行独立提示条，选中第一个文件时该行突然出现，
+     把下面的列表整体往下顶 —— 就是用户报的"点一下文件往下漂一下"。
+     放进已有的一行里就不会再改变布局高度。 */
+  if(libSel.size){
+    const chip=document.createElement("span");
+    chip.className="lib-selchip";
+    chip.title="右键可批量移动 / 删除；Esc 取消选择";
+    chip.textContent="已选 "+libSel.size+" 个";
+    actionBar.appendChild(chip);
+  }
   fileGroups.appendChild(actionBar);
   /* 渲染文件夹 */
   const topFolders=state.folders.filter(f=>!f.parentId);
@@ -865,37 +942,220 @@ function countFilesInFolder(folderId){
   return cnt;
 }
 function renderFileItem(f){
+  libOrder.push(f.id);   /* 记录渲染顺序，供 Shift 区间选取（renderFileGroups 开头会清空） */
   const item=document.createElement("div");
-  item.className="fitem";
+  item.className="fitem"+(libSel.has(f.id)?" selected":"");
   item.draggable=true;
-  item.innerHTML=(FILE_ICONS[f.kind]||FILE_ICONS.other)+'<span class="fname"></span><span class="fdel" title="删除"></span>';
+  item.dataset.fileId=f.id;
+  item.innerHTML='<span class="fcheck" role="checkbox" aria-checked="'+(libSel.has(f.id)?"true":"false")+'" title="选择"></span>'
+                +(FILE_ICONS[f.kind]||FILE_ICONS.other)
+                +'<span class="fname"></span><span class="fdel" title="删除"></span>';
   item.querySelector(".fname").textContent=f.name;
   item.querySelector(".fdel").innerHTML=ICON.trash;
   item.querySelector(".fdel").addEventListener("click",ev=>{ev.stopPropagation();removeFile(f.id);});
-  item.addEventListener("click",()=>{f.kind==="link"?window.open(f.url,"_blank"):openPreview(f.id);});
+  /* 勾选框：点它只切换勾选，不触发整行的选择逻辑 */
+  item.querySelector(".fcheck").addEventListener("click",ev=>{
+    ev.stopPropagation();ev.preventDefault();
+    libToggle(f.id);renderFileGroups();
+  });
+  /* 单击 = 选中该文件（已取消"单击在画布正中弹出预览"）。
+     Ctrl/⌘ 加选或取消；Shift 选中锚点到当前项之间的全部文件。
+     ⚠️ 只有"选择确实变了"才重渲染：renderFileGroups() 会重建整个列表，
+     把当前节点从文档里摘掉；dblclick 是在 click 之后触发的，
+     节点一旦失效，getBoundingClientRect() 全为 0，
+     依赖锚点定位的浮窗就会跑到窗口左上角。 */
+  item.addEventListener("click",ev=>{
+    ev.stopPropagation();
+    const snapshot=()=>libSel.size+"|"+[...libSel].sort().join(",")+"|"+libAnchor;
+    const before=snapshot();
+    if(ev.shiftKey)libSelectRange(f.id);
+    else if(ev.ctrlKey||ev.metaKey)libToggle(f.id);
+    else libSelectOnly(f.id);
+    if(snapshot()!==before)renderFileGroups();
+  });
   item.addEventListener("dragstart",ev=>{
     ev.dataTransfer.setData("application/x-board-file",f.id);
     ev.dataTransfer.effectAllowed="copyMove";
     item.classList.add("dragging");
+    libDragId=f.id;                 /* 本次拖拽的源，供库内排序判定 */
+  });
+  /* ── 库内拖拽排序 ──
+     拖到另一条素材的「上/下半区」＝插到它前面/后面，并在两行之间显示插入线。
+     拖出侧栏到画布时不受影响：那边的 dragover/drop 由 board 上的处理器接管。 */
+  item.addEventListener("dragover",ev=>{
+    if(!libDragId||libDragId===f.id)return;
+    const r=item.getBoundingClientRect();
+    const after=ev.clientY>r.top+r.height/2;
+    ev.preventDefault();
+    /* 不要 stopPropagation：容器要靠这个事件喂自动滚动的指针位置 */
+    if(ev.dataTransfer)ev.dataTransfer.dropEffect="move";
+    if(libDropTarget&&libDropTarget.id===f.id&&libDropTarget.after===after)return;
+    clearLibDropMark();
+    item.classList.add(after?"drop-after":"drop-before");
+    libDropTarget={id:f.id,after};
+  });
+  item.addEventListener("dragleave",ev=>{
+    if(item.contains(ev.relatedTarget))return;
+    item.classList.remove("drop-before","drop-after");
+    if(libDropTarget&&libDropTarget.id===f.id)libDropTarget=null;
+  });
+  item.addEventListener("drop",ev=>{
+    if(!libDragId)return;
+    ev.preventDefault();ev.stopPropagation();
+    let after;
+    if(libDropTarget&&libDropTarget.id===f.id){after=libDropTarget.after;}
+    else{
+      const r=item.getBoundingClientRect();
+      after=ev.clientY>r.top+r.height/2;
+    }
+    const src=libDragId;
+    clearLibDropMark();
+    if(reorderLibraryFile(src,f.id,after))toast("已调整顺序");
   });
   item.addEventListener("contextmenu",ev=>{
       ev.preventDefault();ev.stopPropagation();
+      /* 多选态下右键落在已选项上 → 批量菜单；否则先把选择收敛到这一项 */
+      if(libSel.has(f.id)&&libSel.size>1){
+        const ids=[...libSel];
+        showFloatMenu(item,[
+          {icon:ICON.folder,label:"批量移动到…（"+ids.length+" 个文件）",onClick:()=>showMoveFileMenu(ids,item)},
+          {sep:true},
+          {icon:'<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2m3 0v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/></svg>',label:"批量删除（"+ids.length+" 个文件）",danger:true,onClick:()=>{
+            showModal("批量删除文件",
+              '<p style="margin:0;font-size:13px;line-height:1.7">将删除 <strong>'+ids.length+'</strong> 个文件，并同时移除它们在所有画布上的材料卡片与连线。</p>',
+              [{label:"取消"},{label:"删除",primary:true,onClick:()=>{removeFilesBatch(ids);libClearSelection();}}]);
+          }}
+        ]);
+        return;
+      }
+      if(!libSel.has(f.id)){libSelectOnly(f.id);renderFileGroups();}
       showFloatMenu(item,[
         {label:"资料使用位置",onClick:()=>L1Research.showUsages(f.id)},
         {icon:'<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><path d="M15 3h6v6"/><path d="M10 14 21 3"/></svg>',label:f.kind==="link"?"打开链接":"预览",onClick:()=>{f.kind==="link"?window.open(f.url,"_blank"):openPreview(f.id);}},
         {icon:'<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>',label:"重命名",onClick:()=>startInlineRename(item,".fname",f.name,function(name){renameFile(f.id,name);})},
         {icon:'<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>',label:"移动到…",onClick:()=>showMoveFileMenu(f.id,item)},
+        {icon:'<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20h16a1 1 0 0 0 1-1V8a1 1 0 0 0-1-1h-7.5l-2-2H4a1 1 0 0 0-1 1v13a1 1 0 0 0 1 1z"/><path d="m9.5 13.5 3 3 2-2"/></svg>',label:"打开所在文件夹",onClick:()=>openFileFolder(f)},
         {sep:true},
         {icon:'<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2m3 0v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/></svg>',label:"删除",danger:true,onClick:()=>removeFile(f.id)}
       ]);
     });
-  /* F8: 双击文件名触发原地重命名 */
+  /* 双击 = 看这份材料在哪些画布被引用，条目可点击直接跳过去。
+     原地重命名让位给右键菜单里的「重命名」，避免与双击冲突。
+     锚点要现取：列表可能刚被重渲染过，闭包里的 item 也许已经脱离文档。 */
   item.addEventListener("dblclick",ev=>{
     ev.preventDefault();ev.stopPropagation();
-    startInlineRename(item,".fname",f.name,function(name){renameFile(f.id,name);});
+    showFileUsageMenu(liveFileItem(f.id)||item,f);
   });
-  item.addEventListener("dragend",()=>item.classList.remove("dragging"));
+  item.addEventListener("dragend",()=>{item.classList.remove("dragging");libDragId=null;clearLibDropMark();libAutoScrollStop();});
   return item;
+}
+/* 取当前文档里对应的那条列表项。
+   列表会被整体重建，闭包里持有的旧节点可能已经脱离文档，
+   这时它的 getBoundingClientRect() 全是 0，依赖锚点的浮窗会跑到窗口左上角。 */
+function liveFileItem(fileId){
+  try{
+    for(const el of document.querySelectorAll("#file-groups .fitem")){
+      if(el.dataset&&el.dataset.fileId===String(fileId))return el;
+    }
+  }catch(e){}
+  return null;
+}
+/* ── 资源库内拖拽排序 ────────────────────────────────────────
+   state.files 的数组顺序就是列表显示顺序（渲染时按 folderId 过滤后顺序遍历），
+   所以"排序"＝把被拖项在数组里挪到目标项前/后。
+   若目标项在别的文件夹里，就顺带跟随到那个文件夹（和文件管理器的手感一致）。 */
+let libDragId=null;      /* 正在拖的文件 id */
+let libDropTarget=null;  /* {id, after} 当前落点 */
+function clearLibDropMark(){
+  for(const el of document.querySelectorAll("#file-groups .fitem.drop-before,#file-groups .fitem.drop-after")){
+    el.classList.remove("drop-before","drop-after");
+  }
+  libDropTarget=null;
+}
+function reorderLibraryFile(dragId,targetId,after){
+  if(!dragId||!targetId||dragId===targetId)return false;
+  const from=state.files.findIndex(f=>f.id===dragId);
+  if(from<0)return false;
+  const target=state.files.find(f=>f.id===targetId);
+  if(!target)return false;
+  const [moved]=state.files.splice(from,1);
+  if(target.folderId!==undefined)moved.folderId=target.folderId||null;
+  let to=state.files.findIndex(f=>f.id===targetId);
+  if(to<0)to=state.files.length;
+  else if(after)to+=1;
+  state.files.splice(to,0,moved);
+  renderFileGroups();saveStateDebounced();
+  return true;
+}
+/* ── 拖拽时靠近上下边缘自动滚动 ──────────────────────────────
+   列表长到需要滚动时，光靠鼠标停在可视区内没法把文件拖到更远的位置，
+   必须让容器自己滚起来。
+   做法：拖拽过程中持续喂入指针的 clientY，rAF 循环按"指针离边缘多近"
+   换算成滚动速度（越靠边越快），滚到头或指针离开边缘带就自动停。 */
+const LIB_EDGE=46;        /* 触发带高度（px） */
+const LIB_MAX_SPEED=16;   /* 每帧最大滚动像素 */
+let libASRaf=null, libASPointerY=null, libASBound=false;
+function libAutoScrollStop(){
+  if(libASRaf){cancelAnimationFrame(libASRaf);libASRaf=null;}
+  libASPointerY=null;
+}
+function libAutoScrollLoop(){
+  libASRaf=null;
+  const y=libASPointerY;
+  if(y==null||!libDragId)return;
+  const c=fileGroups;
+  if(!c||c.scrollHeight<=c.clientHeight+1)return;   /* 没得滚就别浪费帧 */
+  const r=c.getBoundingClientRect();
+  let dir=0;
+  if(y<r.top+LIB_EDGE)dir=-(1-Math.max(0,y-r.top)/LIB_EDGE);
+  else if(y>r.bottom-LIB_EDGE)dir=(1-Math.max(0,r.bottom-y)/LIB_EDGE);
+  if(!dir)return;
+  const before=c.scrollTop;
+  c.scrollTop=before+Math.max(-1,Math.min(1,dir))*LIB_MAX_SPEED;
+  if(c.scrollTop!==before)libASRaf=requestAnimationFrame(libAutoScrollLoop);
+}
+function libAutoScrollFeed(clientY){
+  libASPointerY=clientY;
+  if(libASRaf==null)libASRaf=requestAnimationFrame(libAutoScrollLoop);
+}
+/* 容器级监听只绑一次：拖动中不断喂指针位置。
+   注意条目自己的 dragover 不能 stopPropagation，否则这里收不到。 */
+function ensureLibAutoScroll(){
+  if(libASBound)return;libASBound=true;
+  fileGroups.addEventListener("dragover",e=>{
+    if(!libDragId)return;
+    libAutoScrollFeed(e.clientY);
+  },{passive:true});
+  fileGroups.addEventListener("dragleave",e=>{
+    if(fileGroups.contains(e.relatedTarget))return;
+    libAutoScrollStop();
+  });
+  window.addEventListener("dragend",libAutoScrollStop,true);
+  window.addEventListener("drop",libAutoScrollStop,true);
+}
+/* 在系统文件管理器里定位这份材料。
+   复用材料库已有的 reveal()：它会先在材料库里找到（必要时落盘），再在资源管理器中选中。 */
+function openFileFolder(f){
+  if(!f)return;
+  if(typeof L1Material==="undefined"||!L1Material.reveal){toast("当前环境不支持定位文件");return;}
+  Promise.resolve(L1Material.reveal(f)).catch(()=>toast("定位文件失败"));
+}
+/* 双击材料 → 浮出「被哪些画布引用」，点条目前往定位。
+   引用数据来自 L1Research.usages(fileId)，与本项目"资料使用位置"用的是同一份。 */
+function showFileUsageMenu(anchorEl,f){
+  let rows=[];
+  try{ rows=(typeof L1Research!=="undefined"&&L1Research.usages)?(L1Research.usages(f.id)||[]):[]; }catch(e){ rows=[]; }
+  if(!rows.length){
+    showFloatMenu(anchorEl,[{note:true,label:"暂无引用"}]);
+    return;
+  }
+  const items=rows.map(r=>({
+    icon:'<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="3" y="3" width="18" height="18" rx="3"/><path d="M3 9h18M9 3v18"/></svg>',
+    label:(r.canvasName||"未命名画布")+" · "+(r.type||""),
+    onClick:()=>{ try{ L1Search.locate(r); }catch(e){ toast("定位失败"); } },
+  }));
+  items.unshift({note:true,label:"共 "+rows.length+" 处引用 · 点击定位"});
+  showFloatMenu(anchorEl,items);
 }
 /* 拖拽文件放到画布 */
 board.addEventListener("dragover",e=>{

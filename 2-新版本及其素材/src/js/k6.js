@@ -87,6 +87,8 @@ async function k6Import(format,presetPath){
     for(const f of p.files)if(!f.kind)f.kind=kindOf(f.name);
     for(const f of p.files)if(f.blob){if(packageCancelled)throw new Error("cancelled");await persistBlob(f);}
     if(packageCancelled)throw new Error("cancelled");
+    /* L5: 导入的项目包同步落盘到材料库（按新项目名建目录） */
+    if(typeof L1Material!=="undefined")await L1Material.mirrorProject(p).catch(()=>{});
     const oldProject=state.activeProjectId,oldCanvas=state.activeCanvasId;
     state.projects.push(p);state.activeProjectId=p.id;state.activeCanvasId=p.canvases[0].id;resetTransientState();syncUid();
     if(!await saveState()){

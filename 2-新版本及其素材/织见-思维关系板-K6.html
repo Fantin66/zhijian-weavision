@@ -3,7 +3,37 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>织见 · 思维关系板 · L1</title>
+<title>织见 · 思维关系板 · M1</title>
+<script>
+/* 启动首帧就定主题（L8.1 修复启动闪白）。
+   ------------------------------------------------------------
+   splash 的暗色样式挂在 [data-theme="dark"] 上（styles.css → #splashScreen），
+   而这个属性此前只有 app.js 里的 applyTheme() 会设。applyTheme() 要等：
+     ① app.js 加载（它是最后一个脚本）→ ② state 就绪 → ③ 一次 getSystemTheme 的
+     IPC 往返（state.autoTheme 默认为 true，走的就是这条异步路径）
+   才把属性挂上。在那之前浏览器已经按默认亮色渲染过 splash 了 —— 暗色模式下
+   看到的就是"先闪一下白，再适配黑色"。
+
+   这里用同步的 matchMedia 读系统主题（渲染层的 prefers-color-scheme 与主进程的
+   nativeTheme 同源，取值一致），在样式表解析之前把属性设好，首帧即正确。
+   后续 applyTheme() 仍会照常执行，设的是同一个值，不会产生二次跳变。 */
+(function(){
+  try{
+    var de=document.documentElement,dark;
+    /* 判据必须与 app.js 的 _applyThemeInner() 完全一致（那份会写这两个键）：
+       · 用户关掉了"跟随系统"（autoTheme=0）→ 用他上次选定的主题
+       · 否则 → 用系统主题（prefers-color-scheme 与主进程 nativeTheme 同源） */
+    var auto=localStorage.getItem("zhijian-autoTheme");
+    var saved=localStorage.getItem("zhijian-theme");
+    if(auto==="0"&&saved){dark=(saved==="dark");}
+    else{
+      var mq=window.matchMedia&&window.matchMedia("(prefers-color-scheme: dark)");
+      dark=!!(mq&&mq.matches);
+    }
+    de.setAttribute("data-theme",dark?"dark":"light");
+  }catch(e){}
+})();
+</script>
 <link rel="stylesheet" href="src/styles.css?v=31">
 </head>
 <body>
@@ -114,7 +144,9 @@
   <div class="brand-footer">
     <img class="bf-cn" alt="织见">
     <div class="bf-info">
-      <span class="bf-ver">L4</span>
+      <!-- M1: 版本号由 config.js 的 APP_VERSION 在启动时刷入（这里写 M1 只是首帧占位）。
+           此前是写死的 L4，没人更新，所以一直显示 L4。 -->
+      <span class="bf-ver">M1</span>
       <span class="bf-slogan">织连万象，见聚一隅</span>
     </div>
     <button class="bf-settings" type="button" title="设置" aria-label="设置"></button>
@@ -237,6 +269,7 @@
 <script src="src/js/excerpts.js"></script>
 <script src="src/js/l1-storage.js"></script>
 <script src="src/js/l1-search.js"></script>
+<script src="src/js/l1-material.js"></script>
 <script src="src/js/l1-pdf.js"></script>
 <script src="src/js/l1-research.js"></script>
 <script src="src/js/ai-guide.js"></script>

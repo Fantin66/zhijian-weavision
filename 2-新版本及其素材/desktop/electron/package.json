@@ -1,7 +1,7 @@
 {
   "name": "zhijian-weavision",
-  "version": "0.14.0",
-  "description": "织见 · 思维关系板 — Desktop App (L4)",
+  "version": "1.1.0",
+  "description": "织见 · 思维关系板 — Desktop App (M1.10)",
   "main": "main.js",
   "scripts": {
     "start": "electron .",
@@ -25,7 +25,8 @@
       "windows-icons.js",
       "package-stream.js",
       "package-stream-worker.js",
-      "skill-install.js"
+      "skill-install.js",
+      "doc-extract.js"
     ],
     "extraResources": [
       {
@@ -57,7 +58,7 @@
       }
     ],
     "directories": {
-      "output": "../../发行版/L4"
+      "output": "../../发行版/M1.10"
     },
     "fileAssociations": [
       {

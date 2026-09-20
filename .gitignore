@@ -35,6 +35,9 @@ __pycache__/
 # Temp logs
 *.log
 
+# Debug backups
+*.bak
+
 # Recovery temp files
 *.fantin
 board-state-*.json

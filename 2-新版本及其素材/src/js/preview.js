@@ -1032,6 +1032,34 @@ function openMdFullscreenEditor(opt){
   tool("🖼","图片",()=>wrap("![","](https://)"));
   tool("```","代码块",()=>{const s=ta.selectionStart;ta.value=ta.value.slice(0,s)+"\n```\n"+ta.value.slice(s)+"\n```\n";});
   tool("—","分割线",()=>{const s=ta.selectionStart;ta.value=ta.value.slice(0,s)+"\n---\n"+ta.value.slice(s);});
+  /* —— 字体 / 字号（2026-09-20 补齐）——
+     全屏编辑器是"正经大量编辑"的场所，控件面必须是画布便签浮动栏的**超集**。
+     原先这里缺字体与字号两项，比便签浮动栏还少。
+     语义：编辑环境偏好（作用于编辑区与预览区），落在 state 上跨会话记住，
+     不写进 Markdown 正文——正文里塞字体标记会污染导出与 AI 读取。 */
+  tsep();
+  const fontSel=document.createElement("select");
+  fontSel.className="fv-font";fontSel.title="字体";
+  for(const [id,preset] of Object.entries(FONT_PRESETS)){
+    const o=document.createElement("option");o.value=id;o.textContent=preset.label;fontSel.appendChild(o);
+  }
+  fontSel.value=state.fvFontPreset||state.fontPreset;
+  tb.appendChild(fontSel);
+  const fontDown=document.createElement("button");fontDown.textContent="A−";fontDown.title="减小字号";
+  const fontSizeEl=document.createElement("span");fontSizeEl.className="size";
+  const fontUp=document.createElement("button");fontUp.textContent="A+";fontUp.title="增大字号";
+  tb.appendChild(fontDown);tb.appendChild(fontSizeEl);tb.appendChild(fontUp);
+  const applyFvType=()=>{
+    const fs=clamp(state.fvFontSize||14,10,32);
+    state.fvFontSize=fs;fontSizeEl.textContent=fs;
+    const stack=(FONT_PRESETS[state.fvFontPreset]||FONT_PRESETS[state.fontPreset]||{}).stack||"";
+    ta.style.fontFamily=stack;ta.style.fontSize=fs+"px";
+    prev.style.fontFamily=stack;prev.style.fontSize=fs+"px";
+  };
+  fontSel.addEventListener("change",()=>{state.fvFontPreset=fontSel.value;applyFvType();saveStateDebounced();});
+  fontDown.addEventListener("click",()=>{state.fvFontSize=clamp((state.fvFontSize||14)-1,10,32);applyFvType();saveStateDebounced();});
+  fontUp.addEventListener("click",()=>{state.fvFontSize=clamp((state.fvFontSize||14)+1,10,32);applyFvType();saveStateDebounced();});
+  applyFvType();
   /* —— 渲染同步：输入/粘贴即渲染（所见即所得） —— */
   const renderPreview=()=>{prev.innerHTML='<div class="md-body">'+mdToHtml(ta.value)+'</div>';prev.scrollTop=prev.scrollTop;};
   let syncT=0;
@@ -1303,21 +1331,144 @@ async function renderDocx(b,bodyEl,fileName="document.docx"){
   /* 回归原先的浏览器内 DOCX 预览：不调用本地服务，也不等待 Office/WPS 转换。 */
   return renderDocxDirect(b,bodyEl,fileName);
 }
+/* 读文件头判断真实格式（不看扩展名）：
+   OOXML(.docx) 是 ZIP → "PK\x03\x04"；旧版 Word(.doc) 是 OLE2 复合文档 → D0 CF 11 E0 A1 B1 1A E1。
+   kindOf() 把 doc 与 docx 都归成 kind="doc"，所以不嗅探的话，二进制 .doc 会被喂给只认 ZIP 的
+   docx-preview —— 它取不到 <w:body>，直接抛
+   "Cannot read properties of null (reading 'childNodes')"。 */
+async function sniffOfficeFormat(blob){
+  try{
+    const head=new Uint8Array(await blob.slice(0,8).arrayBuffer());
+    if(head[0]===0x50&&head[1]===0x4B)return "zip";
+    if(head[0]===0xD0&&head[1]===0xCF&&head[2]===0x11&&head[3]===0xE0)return "ole2";
+    return "other";
+  }catch(e){return "unknown";}
+}
+/* 旧版 .doc（OLE2 二进制）：主进程解析 → 按块渲染，观感接近 Markdown 预览。
+   为什么放主进程：解析要用 Buffer，而渲染层是 sandbox 的，没有 Node。
+   能拿到什么：段落块 + 标题级别（样式号或字号推断）+ 每段的粗体/斜体片段。 */
+function legacyDocEscape(s){
+  return String(s==null?"":s).replace(/[&<>"]/g,function(c){
+    return c==="&"?"&amp;":c==="<"?"&lt;":c===">"?"&gt;":"&quot;";
+  });
+}
+function legacyRunsToHtml(runs,heading){
+  let out="";
+  for(const r of (runs||[])){
+    let s=legacyDocEscape(r.text);
+    if(!s)continue;
+    if(heading){ out+=s; continue; }       /* 标题内不再叠粗体，交给标题样式 */
+    if(r.i)s="<em>"+s+"</em>";
+    if(r.b)s="<strong>"+s+"</strong>";
+    out+=s;
+  }
+  return out;
+}
+async function renderLegacyDoc(blob,bodyEl,fileName){
+  if(!(window.electronAPI&&window.electronAPI.docExtract))return false;
+  bodyEl.innerHTML='<div class="pv-loading"><div class="spinner"></div>正在解析旧版 Word 文档…</div>';
+  let r=null;
+  try{
+    const bytes=new Uint8Array(await blob.arrayBuffer());
+    r=await window.electronAPI.docExtract({bytes:Array.from(bytes)});
+  }catch(e){ console.warn("doc-extract 调用失败",e); return false; }
+  if(!r||!r.ok){ if(r&&r.error)console.warn("doc-extract:",r.error); return false; }
+
+  const wrap=document.createElement("div");wrap.className="pv-legacy-doc";
+  const note=document.createElement("div");note.className="pv-legacy-note";
+  note.textContent="原文件为旧版 .doc（Word 97-2003）。此处按解析出的文字与格式呈现，排版与原文件不完全一致。";
+  wrap.appendChild(note);
+  const box=document.createElement("div");box.className="pv-legacy-body";
+  let n=0, tbl=null, tblRows=0;
+  const closeTable=()=>{
+    if(!tbl)return;
+    /* 补平列数：同一表格内各行列数取最大值，缺的补空格子 */
+    const max=Math.max(...[...tbl.querySelectorAll("tr")].map(r=>r.children.length),1);
+    for(const tr of tbl.querySelectorAll("tr")){
+      while(tr.children.length<max){const td=document.createElement("td");tr.appendChild(td);}
+    }
+    tbl=null;
+  };
+  for(const bl of (r.blocks||[])){
+    const txt=String(bl.text||"").replace(/\s+$/,"");
+    const isRow=!!(bl.cells&&bl.cells.length);
+    if(!isRow){ closeTable(); }
+    if(!txt.trim()&&!isRow)continue;
+    if(isRow){
+      if(!tbl){tbl=document.createElement("table");tbl.className="pv-legacy-table";tblRows=0;box.appendChild(tbl);}
+      const tr=document.createElement("tr");
+      for(const c of bl.cells){
+        const td=document.createElement("td");
+        /* 单元格内保留了原换行，用 <br> 还原 */
+        td.innerHTML=legacyRunsToHtml([{text:String(c||"").replace(/\n/g,"\u0000")}],0).split("\u0000").join("<br>");
+        tr.appendChild(td);
+      }
+      tbl.appendChild(tr);tblRows++;n++;
+      continue;
+    }
+    const h=bl.heading|0;
+    const el=document.createElement(h>=1&&h<=6?("h"+h):"p");
+    el.innerHTML=legacyRunsToHtml(bl.runs,h);
+    if(!el.textContent.trim())continue;
+    if(h&&bl.jc===1)el.classList.add("jc-center");
+    if(bl.indent)el.style.marginLeft=Math.min(4,Math.round(bl.indent/360))+"em";
+    box.appendChild(el);n++;
+  }
+  closeTable();
+  if(!n){ return false; }
+  wrap.appendChild(box);
+  bodyEl.innerHTML="";bodyEl.appendChild(wrap);
+  return true;
+}
 async function renderDocxDirect(b,bodyEl,fileName="document.docx"){
   bodyEl.innerHTML='<div class="pv-loading"><div class="spinner"></div>正在解析 Word 文档…</div>';
+  /* —— 第一道：按真实字节判断，别让非 docx 走进 docx-preview —— */
+  const fmt=await sniffOfficeFormat(b);
+  if(fmt==="ole2"){
+    /* 旧版 .doc：不喂给 docx-preview（它只认 ZIP），改走主进程的 OLE2 解析器 */
+    if(await renderLegacyDoc(b,bodyEl,fileName))return;
+    docxFallbackMessage(b,bodyEl,fileName,new Error("这是旧版 .doc（二进制）格式，解析未成功；请另存为 .docx 后再导入"));
+    return;
+  }
+  if(fmt==="other"||fmt==="unknown"){
+    docxFallbackMessage(b,bodyEl,fileName,new Error("文件内容不是 Word 文档（可能是改了扩展名的其他格式）"));
+    return;
+  }
   const ok=await ensureCdn("doc");
   if(!ok){docxFallbackMessage(b,bodyEl,fileName,new Error("浏览器 Word 解析组件未加载"));return;}
-  bodyEl.innerHTML='<div class="pv-loading"><div class="spinner"></div>正在解析 Word 文档…</div>';
+  /* —— 第二道：ZIP 里必须真有 word/document.xml —— */
   try{
+    if(!window.JSZip)throw new Error("no jszip");
+    const zip=await JSZip.loadAsync(b);
+    if(!zip.file("word/document.xml")){
+      docxFallbackMessage(b,bodyEl,fileName,new Error("包内缺少 word/document.xml，不是有效的 .docx"));
+      return;
+    }
+  }catch(e){
+    docxFallbackMessage(b,bodyEl,fileName,new Error("文件无法作为 .docx 打开（压缩包已损坏）"));
+    return;
+  }
+  const renderOnce=async(opt)=>{
+    bodyEl.innerHTML='<div class="pv-loading"><div class="spinner"></div>正在解析 Word 文档…</div>';
     const loading=bodyEl.firstElementChild;
-    /* 浏览器直接解析 DOCX；卡片预览另设舞台以保留纸张感，并在解析完成后按页宽适配。 */
     const stage=document.createElement("div");stage.className="pv-docx-stage";stage.style.visibility="hidden";bodyEl.appendChild(stage);
-    await window.docx.renderAsync(b,stage,null,{className:"docx-container",inWrapper:true,ignoreWidth:false,ignoreHeight:false,breakPages:true});
+    await window.docx.renderAsync(b,stage,null,opt);
     loading?.remove();stage.style.visibility="";
     if(bodyEl.closest("#previewLayer"))requestAnimationFrame(()=>fitDocxPreview(bodyEl));
+  };
+  try{
+    await renderOnce({className:"docx-container",inWrapper:true,ignoreWidth:false,ignoreHeight:false,breakPages:true});
   }catch(e){
-    console.warn("browser docx preview failed",e);
-    docxFallbackMessage(b,bodyEl,fileName,e);
+    /* 兜底：部分文档的页眉/分节结构会让拆页路径崩，退回"不拆页 + 忽略页面尺寸"再试一次。
+       实测这是 .docx 偶发失败的常见成因，多数文档第二次能出来。 */
+    console.warn("browser docx preview failed, retry in compat mode",e);
+    try{
+      await renderOnce({className:"docx-container",inWrapper:true,ignoreWidth:true,ignoreHeight:true,breakPages:false});
+      toast("已用兼容模式显示（未拆分页）");
+    }catch(e2){
+      console.warn("browser docx compat retry failed",e2);
+      docxFallbackMessage(b,bodyEl,fileName,e);
+    }
   }
 }
 async function renderPdf(b,bodyEl,opt={}){

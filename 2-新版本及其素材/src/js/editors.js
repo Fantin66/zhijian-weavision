@@ -201,10 +201,25 @@ const LAYOUT_THUMBS={
   fishbone:'<svg viewBox="0 0 96 48" width="100%" height="100%"><rect x="56" y="19" width="32" height="10" rx="3" fill="#2d5fd3"/><rect x="6" y="4" width="16" height="9" rx="2" fill="#9db8f0"/><rect x="6" y="19" width="16" height="9" rx="2" fill="#9db8f0"/><rect x="6" y="35" width="16" height="9" rx="2" fill="#9db8f0"/><path d="M22 8h34M22 24h34M22 40h34" stroke="#7c98d8" stroke-width="1.5" fill="none"/><path d="M56 8v32" stroke="#7c98d8" stroke-width="1" fill="none"/></svg>',
   timeline:'<svg viewBox="0 0 96 48" width="100%" height="100%"><rect x="3" y="20" width="14" height="9" rx="2" fill="#2d5fd3"/><rect x="31" y="20" width="14" height="9" rx="2" fill="#9db8f0"/><rect x="59" y="20" width="14" height="9" rx="2" fill="#9db8f0"/><rect x="3" y="4" width="17" height="7" rx="2" fill="#c9d8f8"/><rect x="31" y="4" width="17" height="7" rx="2" fill="#c9d8f8"/><rect x="59" y="4" width="17" height="7" rx="2" fill="#c9d8f8"/><path d="M17 24h14M45 24h14M20 7.5h11M48 7.5h11" stroke="#7c98d8" stroke-width="1.5" fill="none"/></svg>',
   brace:'<svg viewBox="0 0 96 48" width="100%" height="100%"><rect x="6" y="18" width="16" height="12" rx="3" fill="#2d5fd3"/><rect x="48" y="3" width="12" height="9" rx="2" fill="#9db8f0"/><rect x="48" y="19" width="12" height="9" rx="2" fill="#9db8f0"/><rect x="48" y="35" width="12" height="9" rx="2" fill="#9db8f0"/><path d="M22 24h10" stroke="#7c98d8" stroke-width="1.5" fill="none"/><path d="M32 24c8 0 4-18 14-18M32 24c8 0 4 18 14 18M32 24c8 0 4-8 14-8M32 24c8 0 4 8 14 8" stroke="#7c98d8" stroke-width="1.5" fill="none"/></svg>',
+  both:'<svg viewBox="0 0 96 48" width="100%" height="100%"><rect x="39" y="16" width="18" height="16" rx="3" fill="#2d5fd3"/><rect x="6" y="4" width="16" height="10" rx="2" fill="#9db8f0"/><rect x="6" y="19" width="16" height="10" rx="2" fill="#9db8f0"/><rect x="6" y="34" width="16" height="10" rx="2" fill="#9db8f0"/><rect x="74" y="4" width="16" height="10" rx="2" fill="#9db8f0"/><rect x="74" y="19" width="16" height="10" rx="2" fill="#9db8f0"/><rect x="74" y="34" width="16" height="10" rx="2" fill="#9db8f0"/><path d="M39 24H22M39 24H22M39 24H22M57 24h17M57 24h17M57 24h17" stroke="#7c98d8" stroke-width="1.5" fill="none"/></svg>',
+  fourway:'<svg viewBox="0 0 96 48" width="100%" height="100%"><rect x="39" y="17" width="18" height="14" rx="3" fill="#2d5fd3"/><rect x="5" y="19" width="17" height="10" rx="2" fill="#9db8f0"/><rect x="74" y="19" width="17" height="10" rx="2" fill="#9db8f0"/><rect x="31" y="3" width="15" height="9" rx="2" fill="#9db8f0"/><rect x="50" y="3" width="15" height="9" rx="2" fill="#9db8f0"/><rect x="31" y="36" width="15" height="9" rx="2" fill="#9db8f0"/><rect x="50" y="36" width="15" height="9" rx="2" fill="#9db8f0"/><path d="M39 24H22M57 24h17M48 17V12M48 31v5" stroke="#7c98d8" stroke-width="1.5" fill="none"/></svg>',
 };
 LAYOUT_THUMBS.logic=LAYOUT_THUMBS.right;
-/* 方向由拖拽决定；这里仅保留真正改变构图与连线形态的模板。 */
-const LAYOUT_ORDER=[["logic","逻辑图"],["org","组织架构图"],["fishbone","鱼骨图"],["timeline","时间轴"]];
+/* L6：名称直接描述"排布往哪去"，不再用"逻辑图"这类看不出方向的说法。
+   第三项是面板里的说明文案，同时作为 title 悬浮提示。
+   顺序按使用频率排：逐级向右（默认）→ 左右分布 → 上下左右 → 纯向下 → U 型 → 鱼骨 → 时间轴。 */
+const LAYOUT_ORDER=[
+  ["logic","逐级向右","子节点一级一级向右展开，链条长时纵向会拉得很长"],
+  ["both","左右分布","一级分支左右两侧对半分，画面接近方形"],
+  ["fourway","上下左右","一级分支向上、下、左、右四个方向辐射展开"],
+  ["org","纯向下","像组织架构图那样逐层向下摊开，过宽自动折行"],
+  ["fishbone","鱼骨形","主轴横向放置，分支交替斜插在上下两侧"],
+  ["timeline","时间轴","一级节点沿横向轴线排列，子树垂在轴下方"],
+];
+/* 已下线：U 型（u）。它的一级分支沿左侧纵向罗列，实测 818×3953、宽高比 0.21，
+   是所有排布里最细长的一种——与"逐级向右"同为纵向形态却更极端，
+   在菜单里属于负价值项；且它的子树纵向间距与兄弟分支冲突，是唯一出现
+   "节点互压"的模板。相关实现 uShapeLayout 保留在 layout.js，未接入菜单与 AI 布局清单。 */
 /* 背景色板（与 _BCM 一致） */
 /* 背景色板（与 BK 函数内 _BCM 一致，供二级菜单全局使用） */
 const BG_COLORS=[["mixed","流光"],["red","红色"],["yellow","黄色"],["blue","蓝色"],["green","绿色"]];
@@ -219,6 +234,99 @@ function relayoutCanvas(){
   pushHistory("重新排版");
   autoLayout();render();saveState();
   toast("已按当前布局重新排版");
+}
+/* ============================================================
+   一键优化：三个强度档
+   ------------------------------------------------------------
+   用户原话是"我自己建立的布局，大体的样子其实已经定了，我只是想对它进行
+   美观性优化"。据此把"整理"拆成三档，强度从低到高：
+     · 优化排布（polishCanvas / layout.js 的 polishLayout）
+         —— 坐标不可侵犯。只把"差一点点没对齐"的那批兄弟吸附齐、把真压住
+            的推开。没被压住、也没差一点的节点，一个像素都不动。
+     · 规整排布（tidyCanvas / layout.js 的 tidyLayout）
+         —— 保留方位、兄弟顺序、纵向行结构，但**重算所有非根节点坐标**，
+            等距排开。它本质上已经是重排，只是方位来自当前坐标而非模板。
+     · 按布局重排（relayoutCanvas）
+         —— 用当前选中的布局模板把整张图重排，形状完全交给规则。
+   最初把 tidyCanvas 直接叫作"优化排布"是名实不符——用户实测后指出了
+   "它改变了原本的排布逻辑"，这个判断是对的，故拆档并补上真正的保形版。
+============================================================ */
+function tidyCanvas(){
+  const root=layoutRoot();
+  if(!root){toast("当前画布还没有导图节点");return;}
+  pushHistory("一键优化排布");
+  normalizeTree();
+  sortSiblings();
+  /* 先清掉上一轮排布留下的朝向：tidy 的方位判定走的是"当前坐标"，
+     残留的 branchDirection 只会在 placeAttachments 阶段被误读。 */
+  for(const it of state.items){if(it.type==="mindNode")delete it.branchDirection;}
+  for(const it of state.items){if(it.annotation)it.annotationSide="bottom";}
+  const spec=layoutSpec();
+  state._layoutSpec=spec;
+  const n=tidyLayout();
+  placeAttachments({below:"right"});
+  settleLayoutOverlaps();
+  delete state._layoutSpec;
+  render();saveState();
+  toast(n?("已规整排布：重排了 "+n+" 个分支的间距与对齐"):"当前没有可整理的分支");
+}
+/* 保形整理：只做兄弟吸附 + 消重叠，节点坐标结构不动。
+   实现在 layout.js 的 polishLayout()，这里只负责前后处理与结果播报。 */
+function polishCanvas(){
+  const root=layoutRoot();
+  if(!root){toast("当前画布还没有导图节点");return;}
+  pushHistory("优化排布");
+  const r=polishLayout();
+  placeAttachments({below:"right"});
+  settleLayoutOverlaps();
+  render();saveState();
+  const parts=[];
+  if(r.aligned)parts.push("对齐 "+r.aligned+" 组兄弟");
+  if(r.separated)parts.push("分开 "+r.separated+" 处重叠");
+  if(!parts.length){
+    toast(r.skipped?("没有可安全调整处："+r.skipped+" 处重叠需要大位移，已跳过"):"这张图已经足够整齐，未作调整");
+    return;
+  }
+  toast("已优化："+parts.join(" · ")+(r.skipped?"（另有 "+r.skipped+" 处位移过大已跳过）":""));
+}
+/* ============================================================
+   L6：画布级线型（连线形态）
+   ------------------------------------------------------------
+   线型能力本身早就有了（link.shape / mindNode._linkShape，取值为
+   auto / curve / polyline / straight），但入口只有"选中某条连线后"
+   才在上下文菜单里出现，语义上却是整张画布层级的设置——44 条线要一条条点。
+   这里补上画布级入口，一次作用于当前画布的全部连线。
+   state.items / state.links 存的就是当前活动画布的内容，无需再按画布过滤。
+============================================================ */
+const LINK_SHAPES=[["auto","跟随布局"],["curve","曲线"],["polyline","折线"],["straight","直线"]];
+const LINK_SHAPE_ICONS={
+  auto:'<svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#7c98d8" stroke-width="1.7" stroke-linecap="round"><path d="M4 18 Q12 6 20 18" opacity=".4"/><path d="M4 18 Q12 6 20 18"/></svg>',
+  curve:'<svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#7c98d8" stroke-width="1.7" stroke-linecap="round"><path d="M4 18 Q12 6 20 18"/></svg>',
+  polyline:'<svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#7c98d8" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 18 L10 18 L10 6 L20 6"/></svg>',
+  straight:'<svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#7c98d8" stroke-width="1.7" stroke-linecap="round"><line x1="4" y1="18" x2="20" y2="6"/></svg>'
+};
+/* 当前画布线型：全部一致时返回该值；混合时返回 mixed（此时无按钮高亮） */
+function currentCanvasLinkShape(){
+  const vals=[];
+  for(const l of state.links)vals.push(l.shape||"auto");
+  for(const it of state.items)if(it.type==="mindNode"&&it.parentId)vals.push(it._linkShape||"auto");
+  if(!vals.length)return "auto";
+  const first=vals[0];
+  return vals.every(v=>v===first)?first:"mixed";
+}
+/* 一次作用于整张画布的全部连线：父子层级连接（存在子节点的 _linkShape）
+   与自由关系线（link.shape）。 */
+function applyCanvasLinkShape(shape){
+  if(!LINK_SHAPES.some(x=>x[0]===shape))return;
+  pushHistory("设置线型");
+  let n=0;
+  for(const l of state.links){l.shape=shape;n++;}
+  for(const it of state.items){
+    if(it.type!=="mindNode"||!it.parentId)continue;
+    it._linkShape=shape;n++;
+  }
+  render();saveState();
+  toast("线型："+((LINK_SHAPES.find(x=>x[0]===shape)||["",""])[1])+"（"+n+" 条）");
 }
 function applyBgColor(name){
   state.bgColorName=name;
@@ -265,30 +373,89 @@ function renderDockSub(){
     }
     dockSubEl.appendChild(grid);
   }else if(dockSubKind==="layout"){
+    /* ── 分区一：选择布局（排布）—— 只改节点坐标 ──────────────────
+       L6 把"排布"与"线型"拆成两个并列分区。此前线型只能靠选中某条连线才在
+       上下文菜单里出现，两件事混在一个入口下，"布局"其实只做了排布这一半。
+       列数固定 3：6 个布局正好两行。用 auto-fill 时 620px 宽的面板排得下 5 列，
+       6 个项会落成"5 + 1"，第二行孤零零一个，很难看。 */
     const t=document.createElement("div");t.className="ds-title";t.textContent="选择布局";
     dockSubEl.appendChild(t);
-    const grid=document.createElement("div");grid.className="ds-grid";
-    for(const [id,label] of LAYOUT_ORDER){
+    const grid=document.createElement("div");grid.className="ds-grid cols-3";
+    for(const [id,label,desc] of LAYOUT_ORDER){
       const it=document.createElement("div");
       it.className="ds-item"+(state.layoutType===id?" on":"");
+      if(desc)it.title=label+"："+desc;
       it.innerHTML='<div class="ds-thumb">'+(LAYOUT_THUMBS[id]||"")+'</div><span class="ds-name">'+label+'</span>';
       it.addEventListener("click",()=>applyLayout(id));
       grid.appendChild(it);
     }
-    /* 重新排版：与其他布局同尺寸的紧凑小格，置于括号图之后；
-       专属图形 = 三节点向中心箭头的“自动规整”图标（区分色：品牌渐变紫，
-       与普通布局的蓝色图形明确区分，暗示这是一键自动排版而非布局形态） */
+    dockSubEl.appendChild(grid);
+    /* ── 分区二：一键优化 —— 不改布局类型，只把当前这张图整理干净 ──────
+       三个档位，强度由低到高（区别详见 polishCanvas / tidyCanvas 上方注释）：
+         · 优化排布   = 保形：只吸附 + 消重叠，坐标结构不动（polishLayout）
+         · 规整排布   = 保留方位/顺序/行，但重算坐标、等距排开（tidyLayout）
+         · 按布局重排 = 形状完全交给当前选中的布局模板
+       用户实测指出旧的「优化排布」其实改变了原本的排布逻辑——它做的是
+       规整档的行为，却被放在了保形档的位置上；现在补上真正的保形档，
+       三个档各就各位。列数 3：正好一行放完。 */
+    const ot=document.createElement("div");ot.className="ds-title";ot.textContent="一键优化";
+    dockSubEl.appendChild(ot);
+    const ogrid=document.createElement("div");ogrid.className="ds-grid cols-3";
+    /* 档一：优化排布（保形） */
+    const pol=document.createElement("div");
+    pol.className="ds-item ds-auto";
+    pol.title="优化排布：不动你摆的坐标，只把差一点点没对齐的兄弟吸附齐、把真正压住的推开。没被压住也没差一点的节点，一个像素都不动。";
+    pol.innerHTML='<div class="ds-thumb" style="background:linear-gradient(145deg,#12916a,#1f9d7a);display:grid;place-items:center">'
+      +'<svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">'
+      +'<path d="M5 3.5v17" stroke-dasharray="2 2.2" opacity=".75"/>'
+      +'<rect x="8" y="4" width="12" height="4.2" rx="1.2" opacity=".95"/>'
+      +'<rect x="8" y="9.9" width="7" height="4.2" rx="1.2" opacity=".95"/>'
+      +'<rect x="8" y="15.8" width="9.5" height="4.2" rx="1.2" opacity=".95"/></svg>'
+      +'</div><span class="ds-name">优化排布</span>';
+    pol.addEventListener("click",()=>{polishCanvas();});
+    ogrid.appendChild(pol);
+    /* 档二：规整排布（保留方位/顺序/行，但重算坐标） */
+    const tidy=document.createElement("div");
+    tidy.className="ds-item ds-auto";
+    tidy.title="规整排布：保留当前方位、兄弟顺序与行的划分，把所有节点等距重排一遍。注意——它会重算每个节点的坐标，你摆出来的距离会被抹平。";
+    tidy.innerHTML='<div class="ds-thumb" style="background:linear-gradient(145deg,#2f6fd8,#3f86e6);display:grid;place-items:center">'
+      +'<svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">'
+      +'<path d="M5 3.2v17.6" opacity=".55"/>'
+      +'<rect x="8" y="4" width="11" height="4.5" rx="1.3" opacity=".95"/>'
+      +'<rect x="8" y="9.75" width="11" height="4.5" rx="1.3" opacity=".95"/>'
+      +'<rect x="8" y="15.5" width="11" height="4.5" rx="1.3" opacity=".95"/></svg>'
+      +'</div><span class="ds-name">规整排布</span>';
+    tidy.addEventListener("click",()=>{tidyCanvas();});
+    ogrid.appendChild(tidy);
+    /* 档三：按布局重排（模板） */
     const re=document.createElement("div");
     re.className="ds-item ds-auto";
-    re.innerHTML='<div class="ds-thumb" style="background:linear-gradient(145deg,#7a55c0,#2d5fd3);display:grid;place-items:center">'
-      +'<svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">'
+    re.title="按布局重排：用当前选中的布局，把整张图重新排一遍（形状会被布局规则覆盖）";
+    re.innerHTML='<div class="ds-thumb" style="background:linear-gradient(145deg,#7a55c0,#5d3fb0);display:grid;place-items:center">'
+      +'<svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">'
       +'<rect x="3" y="6" width="6" height="6" rx="1.5" opacity=".9"/><rect x="15" y="6" width="6" height="6" rx="1.5" opacity=".9"/>'
       +'<rect x="9" y="15" width="6" height="6" rx="1.5" opacity=".9"/>'
       +'<path d="M9 9h6M12 12v3" stroke="#fff" stroke-width="1.5"/></svg>'
-      +'</div><span class="ds-name">重新排版</span>';
+      +'</div><span class="ds-name">按布局重排</span>';
     re.addEventListener("click",()=>{relayoutCanvas();hideDockSub();});
-    grid.appendChild(re);
-    dockSubEl.appendChild(grid);
+    ogrid.appendChild(re);
+    dockSubEl.appendChild(ogrid);
+    /* ── 分区三：选择线型（连线形态）—— 只改连线形态，不动节点位置 ──────
+       一次作用于整张画布的全部连线（父子层级连接 + 自由关系线）。
+       列数固定 4：正好一行，auto-fill 会排出 5 个轨道空一格。 */
+    const st=document.createElement("div");st.className="ds-title";st.textContent="选择线型";
+    dockSubEl.appendChild(st);
+    const sgrid=document.createElement("div");sgrid.className="ds-grid cols-4";
+    const curShape=currentCanvasLinkShape();
+    for(const [key,label] of LINK_SHAPES){
+      const it=document.createElement("div");
+      it.className="ds-item"+(curShape===key?" on":"");
+      it.title="整张画布："+label;
+      it.innerHTML='<div class="ds-thumb" style="display:grid;place-items:center">'+(LINK_SHAPE_ICONS[key]||"")+'</div><span class="ds-name">'+label+'</span>';
+      it.addEventListener("click",()=>{applyCanvasLinkShape(key);renderDockSub();});
+      sgrid.appendChild(it);
+    }
+    dockSubEl.appendChild(sgrid);
   }else if(dockSubKind==="style"){
     /* 样式独立分类：5 套风格一键切换（仅样式，不影响布局） */
     const t=document.createElement("div");t.className="ds-title";t.textContent="选择样式";
@@ -313,9 +480,13 @@ function renderDockSub(){
       grid.appendChild(it);
     }
     dockSubEl.appendChild(grid);
+    /* L9：节点配色 / 关系线路径 每组只有两项，各占一整行是白费面板高度。
+       并成一行：左右各半幅，每组仍保留自己的小标题 + 两项。 */
+    const pairRow=document.createElement("div");pairRow.className="ds-pair";
+    const colorCol=document.createElement("div");
     const colorTitle=document.createElement("div");colorTitle.className="ds-title";colorTitle.textContent="节点配色";
-    dockSubEl.appendChild(colorTitle);
-    const colorGrid=document.createElement("div");colorGrid.className="ds-grid";
+    colorCol.appendChild(colorTitle);
+    const colorGrid=document.createElement("div");colorGrid.className="ds-grid cols-2";
     [["single","统一单色"],["auto","自动轮换"]].forEach(([mode,label])=>{
       const it=document.createElement("div");
       it.className="ds-item"+(state.mindColorMode===mode?" on":"");
@@ -324,7 +495,30 @@ function renderDockSub(){
       it.addEventListener("click",()=>applyMindColorMode(mode));
       colorGrid.appendChild(it);
     });
-    dockSubEl.appendChild(colorGrid);
+    colorCol.appendChild(colorGrid);
+    pairRow.appendChild(colorCol);
+    /* B：关系线避障。默认开——只在真的撞上卡片时才改路，不撞的线一像素不动，
+       所以开着没有代价；关掉是给"我就是要那条最短直线"的场合兜底。
+       L9：与节点配色同排，占右半幅。 */
+    const avoidCol=document.createElement("div");
+    const avoidTitle=document.createElement("div");avoidTitle.className="ds-title";avoidTitle.textContent="关系线路径";
+    avoidCol.appendChild(avoidTitle);
+    const avoidGrid=document.createElement("div");avoidGrid.className="ds-grid cols-2";
+    [["on","避障绕行","撞到卡片才绕，其余不动"],["off","直连","始终走最短线"]].forEach(([key,label,desc])=>{
+      const it=document.createElement("div");
+      it.className="ds-item"+((state.linkAvoid!==false)=== (key==="on")?" on":"");
+      it.title=desc;
+      it.innerHTML='<div class="ds-thumb" style="display:grid;place-items:center;font-size:14px">'+(key==="on"?"⌐":"╱")+'</div><span class="ds-name">'+label+'</span>';
+      it.addEventListener("click",()=>{
+        state.linkAvoid=(key==="on");
+        toast(key==="on"?"关系线已开启避障绕行":"关系线已改为直连");
+        renderDockSub();render();saveState();
+      });
+      avoidGrid.appendChild(it);
+    });
+    avoidCol.appendChild(avoidGrid);
+    pairRow.appendChild(avoidCol);
+    dockSubEl.appendChild(pairRow);
   }else if(dockSubKind==="linkLevel"){
     /* E5: link level dock sub-menu */
     var sel=selectedItem();
@@ -875,8 +1069,72 @@ function linksOf(it){
   if(!it)return[];
   return state.links.filter(l=>l.aId===it.id||l.bId===it.id);
 }
+/* 避障用的障碍集合：所有"占位的卡片"。画笔笔画、连接器不是卡片，不参与避障；
+   收起的子节点等同于不存在，也不该把线顶开。整帧只建一次，逐条线复用。 */
+function collectLinkObstacles(){
+  const out=[];
+  for(const it of state.items){
+    if(it.type==="stroke"||it.type==="connector"||it.type==="link")continue;
+    if(it.type==="mindNode"&&!isMindNodeVisible(it))continue;
+    const b=itemBounds(it);
+    if(!b||!(b.w>0&&b.h>0))continue;
+    out.push({id:it.id,x:b.x,y:b.y,w:b.w,h:b.h});
+  }
+  return out;
+}
+/* 避障路线缓存：绕行要跑 A*，每帧每条线都算扛不住。
+   键 = 两端锚点坐标 + 出入口侧 + 沿线邻域内的卡片指纹。
+   指纹只覆盖这条线自己包围盒外扩一圈里的卡片 —— 画布别处的节点怎么动
+   都不影响它，所以拖一个节点时只有"被拖的这张"以及"就在它旁边的那些"
+   会重算，其余全是纯命中。已算出绕行时把 hadAvoid 传下去做迟滞，
+   免得拖拽收尾阶段在"绕行"和"直连"之间来回跳。
+   实测（probe-avoid.js，00·总框架 22 条线）：静帧 0 次 A*，
+   拖 1 个节点 4.93 次/帧 ≈ 该节点的度数。 */
+/* 邻域指纹：把"这条线附近有哪些卡片、各自在哪"压成一个整数。
+   端点没动、但附近有卡片挪了位置时，指纹会变 → 缓存失效 → 重算。
+   这正是"把一张卡片拖到一条线上，线会自己绕开"能生效的原因。
+   只扫这条线自己的包围盒（外扩到最宽走廊），画布别处的卡片不参与，
+   所以拖一个节点时，绝大多数不相关的线依然是纯命中、零开销。
+   用 FNV-1a：几行整数运算、无分配，比建走廊便宜两个量级。 */
+function neighborhoodFingerprint(rects,x0,y0,x1,y1,pad){
+  let h=2166136261>>>0;
+  for(let i=0;i<rects.length;i++){
+    const r=rects[i];
+    if(r.x>x1+pad||r.x+r.w<x0-pad||r.y>y1+pad||r.y+r.h<y0-pad)continue;
+    h=Math.imul(h^(Math.round(r.x)|0),16777619)>>>0;
+    h=Math.imul(h^(Math.round(r.y)|0),16777619)>>>0;
+    h=Math.imul(h^(Math.round(r.w)|0),16777619)>>>0;
+    h=Math.imul(h^(Math.round(r.h)|0),16777619)>>>0;
+  }
+  return h;
+}
+const _avoidCache=new Map();
+function avoidCurveFor(l,curve,obstacles){
+  if(state.linkAvoid===false)return null;
+  const ob=obstacles||collectLinkObstacles();
+  /* bk = 缓存键。两截组成：
+       ① 两端锚点坐标 + 出入口侧 —— 线自己动了没动
+       ② 沿线包围盒内的卡片指纹 —— 线周围的东西动了没动
+     ② 不能省。少了它，把一张卡片拖到一条原本不撞的线上时，那条线的
+     端点一个像素没变，缓存照样命中，线就会直挺挺穿过新来的卡片。
+     （注：这里比较的必须是裸键 bk；曾经错拿"bk+走廊指纹"的合成串去比，
+       于是 100% 失效、每帧全量重跑 —— 是 probe-avoid 的确定性计数
+       把这个坑挖出来的，毫秒基准下被噪声完全盖住。） */
+  const bx0=Math.min(curve.ea.x,curve.eb.x),bx1=Math.max(curve.ea.x,curve.eb.x);
+  const by0=Math.min(curve.ea.y,curve.eb.y),by1=Math.max(curve.ea.y,curve.eb.y);
+  const bk=Math.round(curve.ea.x)+","+Math.round(curve.ea.y)+","+Math.round(curve.eb.x)+","+Math.round(curve.eb.y)
+    +","+curve.outSide+curve.inpSide
+    +","+neighborhoodFingerprint(ob,bx0,by0,bx1,by1,AVOID.searchWide+AVOID.pad);
+  const prev=_avoidCache.get(l.id);
+  const hadAvoid=!!(prev&&prev.pts);
+  if(prev&&prev.bk===bk)return prev.pts;
+  const r=computeAvoid(curve.ea,curve.outSide,curve.eb,curve.inpSide,ob,[l.aId,l.bId],hadAvoid);
+  if(_avoidCache.size>600)_avoidCache.clear();
+  _avoidCache.set(l.id,{bk:bk,k:bk+","+r.key,pts:r.pts});
+  return r.pts;
+}
 /* 绘制自由连接线 */
-function linkCurve(l){
+function linkCurve(l,obstacles){
   const a=idMap.get(l.aId)||state.items.find(i=>i.id===l.aId),b=idMap.get(l.bId)||state.items.find(i=>i.id===l.bId);
   if(!a||!b)return null;
   const ab=itemBounds(a),bb=itemBounds(b);
@@ -890,7 +1148,27 @@ function linkCurve(l){
   /* 平滑过渡：拖动时端点/朝向用指数平滑，避免生硬跳变 */
   const sm=smoothLinkEndpoints(l,ea,eb,outSide,inpSide);
   const horizontal=(sm.outSide==="l"||sm.outSide==="r")&&(sm.inpSide==="l"||sm.inpSide==="r");
-  return{ea:sm.ea,eb:sm.eb,mx:(sm.ea.x+sm.eb.x)/2,my:(sm.ea.y+sm.eb.y)/2,horizontal,outSide:sm.outSide,inpSide:sm.inpSide};
+  const curve={ea:sm.ea,eb:sm.eb,mx:(sm.ea.x+sm.eb.x)/2,my:(sm.ea.y+sm.eb.y)/2,horizontal,outSide:sm.outSide,inpSide:sm.inpSide,pts:null};
+  /* B 方案：避障路由。用户显式选过线形状的线不插手（那是明确意图），
+     "跟随/auto"（默认）才交给避障。 */
+  if(l.shape===undefined||l.shape==="auto"){
+    curve.pts=avoidCurveFor(l,curve,obstacles);
+  }
+  return curve;
+}
+/* 沿关系线的路径取点：有绕行走折线，没有就走原来的贝塞尔/折线 */
+function curvePointAt(curve,t,ctxPathOnly){
+  if(curve.pts)return polyMidAt(curve.pts,t);
+  const horiz=(curve.outSide==="l"||curve.outSide==="r");
+  if(horiz){
+    const P1={x:curve.mx,y:curve.ea.y},P2={x:curve.mx,y:curve.eb.y};
+    return bezierAt(curve.ea,P1,P2,curve.eb,t);
+  }
+  if((curve.outSide==="t"||curve.outSide==="b")&&(curve.inpSide==="t"||curve.inpSide==="b")){
+    const P1={x:curve.ea.x,y:curve.my},P2={x:curve.eb.x,y:curve.my};
+    return bezierAt(curve.ea,P1,P2,curve.eb,t);
+  }
+  return{x:curve.ea.x+(curve.eb.x-curve.ea.x)*t,y:curve.ea.y+(curve.eb.y-curve.ea.y)*t};
 }
 /* 三次贝塞尔取点 */
 function bezierAt(p0,p1,p2,p3,t){
@@ -906,6 +1184,12 @@ function jitterAt(seed,i){
   return (v-Math.floor(v))-0.5;   /* -0.5 ~ 0.5 */
 }
 function strokeLinkCurve(c,curve){
+  /* B: 有绕行折线时走折线（拟物笔触沿折线采样，保持同一支笔的手感） */
+  if(curve.pts){
+    if(styleCfg().linkStyle==="pen")strokePolylinePen(c,curve.pts);
+    else strokeRoundedPolyline(c,curve.pts,AVOID.radius);
+    return;
+  }
   /* 水平连线走横向 S 曲线，垂直连线走纵向 S 曲线，避免歪斜 */
   const P0=curve.ea,P3=curve.eb;
   const P1=curve.horizontal?{x:curve.mx,y:curve.ea.y}:{x:curve.ea.x,y:curve.my};
@@ -930,13 +1214,46 @@ function strokeLinkCurve(c,curve){
   c.beginPath();c.moveTo(P0.x,P0.y);
   c.bezierCurveTo(P1.x,P1.y,P2.x,P2.y,P3.x,P3.y);
 }
+/* 拟物笔触沿绕行折线采样：与 strokeLinkCurve 的钢笔分支同一套抖动参数，
+   只是把这套手感从贝塞尔搬到折线上，换路径不换笔。 */
+function strokePolylinePen(c,pts){
+  const seed=pts[0].x*0.37+pts[0].y*0.11;
+  const amp=1.1;
+  c.beginPath();
+  let n=0;
+  for(let s=0;s<pts.length-1;s++){
+    const a=pts[s],b=pts[s+1];
+    const len=Math.hypot(b.x-a.x,b.y-a.y);
+    const steps=Math.max(2,Math.round(len/24));
+    for(let i=(s===0?0:1);i<=steps;i++){
+      const t=i/steps,p={x:a.x+(b.x-a.x)*t,y:a.y+(b.y-a.y)*t};
+      const edge=(s===0&&t<0.12)||(s===pts.length-2&&t>0.88)?0:1;
+      const jx=jitterAt(seed,n)*amp*edge,jy=jitterAt(seed+9.1,n)*amp*edge;
+      if(n===0)c.moveTo(p.x+jx,p.y+jy);else c.lineTo(p.x+jx,p.y+jy);
+      n++;
+    }
+  }
+}
 function drawLinks(scope){
   const z=state.camera.zoom;
+  /* B: 障碍集合整帧建一次，逐条线复用（逐条重建会在密画布上把帧率吃光） */
+  const obstacles=(state.linkAvoid===false)?null:collectLinkObstacles();
   for(const l of state.links){
     if(scope&&(!scope.has(l.aId)||!scope.has(l.bId)))continue;
     const a=idMap.get(l.aId),b=idMap.get(l.bId);
     if((a&&a.type==="mindNode"&&!isMindNodeVisible(a))||(b&&b.type==="mindNode"&&!isMindNodeVisible(b)))continue;
-    const curve=linkCurve(l);if(!curve)continue;
+    /* B: 视口外先剔掉，再谈避障。避障要跑 A*，给屏幕外看不见的线白算是纯浪费；
+       用两端点的包围盒（外扩 260，容得下绕行甩出去的部分）当便宜的预筛。
+       idMap 没索引到就不预筛，交给 linkCurve 自己去找。 */
+    const ab0=a&&itemBounds(a),bb0=b&&itemBounds(b);
+    if(ab0&&bb0){
+      const pad=260;
+      const x0=Math.min(ab0.x,bb0.x)-pad,y0=Math.min(ab0.y,bb0.y)-pad;
+      if(!inViewport({x:x0,y:y0,
+        w:Math.max(ab0.x+ab0.w,bb0.x+bb0.w)-x0+pad,
+        h:Math.max(ab0.y+ab0.h,bb0.y+bb0.h)-y0+pad}))continue;
+    }
+    const curve=linkCurve(l,obstacles);if(!curve)continue;
     /* 控制点位于端点盒内，保守裁剪仍会保留穿过视口的关系线。 */
     const curveBounds={x:Math.min(curve.ea.x,curve.eb.x),y:Math.min(curve.ea.y,curve.eb.y),w:Math.abs(curve.ea.x-curve.eb.x),h:Math.abs(curve.ea.y-curve.eb.y)};
     if(!inViewport(curveBounds))continue;
@@ -964,7 +1281,7 @@ function drawLinks(scope){
     const dash=rel.dash||[];
     ctx.setLineDash(dash.map(d=>d/z));
     if(LK.linkStyle==="pen") strokeLinkCurve(ctx,curve);
-    else routeConnection(ctx,ea,eb,curve.outSide,curve.inpSide,linkColor,baseW/z,l.shape);
+    else pathConnection(ctx,curve,linkColor,baseW/z,l.shape);
     ctx.stroke();ctx.setLineDash([]);
     /* E5: highlight level — inner light line (thin lighter stroke on top of thick line) */
     if(lvl==="highlight"&&!active){
@@ -996,13 +1313,16 @@ function drawLinks(scope){
       const cue=annotationCueColor(l);
       ctx.save();ctx.globalAlpha=.12+p*.16;ctx.strokeStyle=cue;ctx.shadowColor=cue;ctx.shadowBlur=(16+p*20)/z;
       ctx.lineWidth=(4.8+p*3.6)/z;
-      routeConnection(ctx,ea,eb,curve.outSide,curve.inpSide,cue,ctx.lineWidth);ctx.stroke();ctx.restore();
+      pathConnection(ctx,curve,cue,ctx.lineWidth);ctx.stroke();ctx.restore();
     }
     if(annotationActive&&(l.annotation||l.relationType!=="related")){
-      const midX=(ea.x+eb.x)/2,midY=(ea.y+eb.y)/2;
+      /* B: 有绕行时标签跟到折线的中点，否则会飘在障碍另一侧、跟线脱节 */
+      const mp=curve.pts?polyMidAt(curve.pts,0.5):{x:(ea.x+eb.x)/2,y:(ea.y+eb.y)/2};
+      const midX=mp.x,midY=mp.y;
       const label=rel.label+(l.annotation?" · "+l.annotation:"");
       const m=annotationMetrics(label,ctx);
-      const angle=Math.atan2(eb.y-ea.y,eb.x-ea.x);
+      const dv=curve.pts?polyDirAt(curve.pts,0.5):null;
+      const angle=dv?Math.atan2(dv.y,dv.x):Math.atan2(eb.y-ea.y,eb.x-ea.x);
       /* 关系标签的阅读规则：只顺着接近水平的线走；斜线与竖线一律保持水平、
          就近贴线并用短引线归属，长中文不再被强迫竖读。 */
       const shallow=Math.abs(angle)<=Math.PI/7||Math.abs(Math.abs(angle)-Math.PI)<=Math.PI/7;
@@ -1024,15 +1344,16 @@ function drawLinks(scope){
     /* C8: 流动光点 — 与思维导图连线一致，选中时沿线流动 */
     if(active&&!state.focusMode){
       const t=(performance.now()%2000)/2000;
-      const horiz=(curve.outSide==="l"||curve.outSide==="r");
+      const easeT=t<.5?2*t*t:1-Math.pow(-2*t+2,2)/2;
       let px,py;
-      if(horiz){
-        const easeT=t<.5?2*t*t:1-Math.pow(-2*t+2,2)/2;
-        const mx2=curve.mx;
+      if(curve.pts){
+        /* B: 有绕行时光点要沿折线跑，否则会从障碍中间穿过去 */
+        const q=curvePointAt(curve,easeT);
+        px=q.x;py=q.y;
+      }else if(curve.outSide==="l"||curve.outSide==="r"){
         px=curve.ea.x+(curve.eb.x-curve.ea.x)*easeT;
         py=curve.ea.y+(curve.eb.y-curve.ea.y)*easeT+Math.sin(t*Math.PI)*((curve.ea.y+curve.eb.y)/2-curve.ea.y)*0.2;
       }else{
-        const easeT=t<.5?2*t*t:1-Math.pow(-2*t+2,2)/2;
         px=curve.ea.x+(curve.eb.x-curve.ea.x)*easeT;
         py=curve.ea.y+(curve.eb.y-curve.ea.y)*easeT;
       }
@@ -1051,6 +1372,13 @@ function hitRelationLink(wx,wy){
     const l=state.links[i],a=state.items.find(it=>it.id===l.aId),b=state.items.find(it=>it.id===l.bId);
     if((a&&a.type==="mindNode"&&!isMindNodeVisible(a))||(b&&b.type==="mindNode"&&!isMindNodeVisible(b)))continue;
     const curve=linkCurve(l);if(!curve)continue;
+    let nearest=Infinity;
+    if(curve.pts){
+      /* B: 绕行线必须按折线做命中判定，否则点和线的位置对不上 */
+      for(let j=1;j<curve.pts.length;j++)nearest=Math.min(nearest,distToSegment(wx,wy,curve.pts[j-1],curve.pts[j]));
+      if(nearest<=tolerance)return{type:"link",id:l.id,...l,annotation:l.annotation||""};
+      continue;
+    }
     /* E5: use correct control points based on direction (horizontal vs vertical S-curve) */
     var p1x,p1y,p2x,p2y;
     if(curve.horizontal){
@@ -1058,7 +1386,7 @@ function hitRelationLink(wx,wy){
     }else{
       p1x=curve.ea.x;p1y=curve.my;p2x=curve.eb.x;p2y=curve.my;
     }
-    let prev=curve.ea,nearest=Infinity;
+    let prev=curve.ea;
     for(let step=1;step<=32;step++){
       const t=step/32,u=1-t;
       const p={x:u*u*u*curve.ea.x+3*u*u*t*p1x+3*u*t*t*p2x+t*t*t*curve.eb.x,
@@ -1396,10 +1724,12 @@ function deleteItem(id){
   if(linkIndex>=0){
     pushHistory("删除连接");state.links.splice(linkIndex,1);
     state.selected=null;state.multiSel=state.multiSel.filter(x=>x!==id);
-    render();saveState();toast("已删除连接");return;
+    render();saveState();toast("已删除连接");
+    /* L5: 返回实际删除的 id，供 AI 等调用方核对（此前返回 undefined） */
+    return {removed:[id],kind:"link"};
   }
   const idx=state.items.findIndex(i=>i.id===id);
-  if(idx<0) return;
+  if(idx<0) return {removed:[],kind:"none"};
   pushHistory("删除元素");
   const removeIds=new Set();
   const collect=itemId=>{
@@ -1423,6 +1753,8 @@ function deleteItem(id){
   state.multiSel=state.multiSel.filter(x=>!removeIds.has(x));
   cleanupProjectReferences();
   render();saveState();
+  /* L5: 级联删除的子节点、关联连线、连接器都记录在 removeIds 里，一并返回 */
+  return {removed:[...removeIds],kind:"item"};
 }
 function duplicateItem(id){
   const src=state.items.find(i=>i.id===id);

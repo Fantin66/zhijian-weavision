@@ -2,6 +2,13 @@
 /* ============================================================
    常量
 ============================================================ */
+/* 应用版本标签（M 系列里程碑）——"给人看的版本号"的唯一来源。
+   左下角状态栏、关于页、窗口标题都从它读。
+   以前这三处各写各的：左下角是 HTML 里写死的 L4（长期没人更新，所以一直停在
+   L4）、关于页 fallback 是 L5、窗口标题是 L1 —— 同一个应用三个版本号。
+   现在只保留这一个常量，改版本只动这里。
+   与 package.json 的 version 对应：M1 ↔ 1.0.0（打包产物名必须用 semver）。 */
+const APP_VERSION="M1.10";
 const FONT_PRESETS={
   clear:{label:"界面雅黑",stack:'"Microsoft YaHei UI","PingFang SC","Noto Sans SC","Segoe UI",sans-serif'},
   serif:{label:"书卷宋体",stack:'"Noto Serif SC","Source Han Serif SC","Songti SC","SimSun",serif'},

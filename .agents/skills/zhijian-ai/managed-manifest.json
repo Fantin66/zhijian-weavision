@@ -1,9 +1,9 @@
 {
   "version": "L1",
   "files": {
-    "SKILL.md": "01b14c6ae526b7236699ebbafd0c6ce73fe3caedd36fddf73024f07ad7bc5d7a",
-    "references/schema.md": "07a7a49b409f0ece775055f1280ce864a03958710e66354f920f6014ada7a1c9",
-    "references/api.md": "0b3ee42d640573d8a2d49e14a4cc837ac80662d75a1f0fe754a6007e5679bcab",
+    "SKILL.md": "dad18d374e4072561826339100ab549d609c9e5328da5f9c53b0e4694e4c660b",
+    "references/schema.md": "a8b53d3289bf0ed07bee381c3177442d991191fe233e69982cb3458657c0fe04",
+    "references/api.md": "675f802327fb6ba704ce08346d568d8dd4129aabdd05e51d8029767e77f9b8eb",
     "scripts/parse-fantin.js": "8834f35c95efb51320d7642d519a3135dcbfd84a65a3aa067ef9773825122744"
   }
 }

@@ -12,7 +12,7 @@ const L1Storage=(()=>{
   async function get(store,key){let r;return tx([store],'readonly',t=>{r=t.objectStore(store).get(key);return()=>r.result;});}
   async function all(store){let r;return tx([store],'readonly',t=>{r=t.objectStore(store).getAll();return()=>r.result;});}
   function capture(){
-    const ui={};for(const key of ['sideCollapsed','dark','bgPattern','bgColorName','mindMode','mindColorMode','layoutType','fontPreset','stylePreset','reducedMotion','fantinIcon','autoTheme','saveInterval','storagePath','noteColor','mindColor'])ui[key]=state[key];
+    const ui={};for(const key of ['sideCollapsed','dark','bgPattern','bgColorName','mindMode','mindColorMode','layoutType','fontPreset','stylePreset','reducedMotion','fantinIcon','autoTheme','saveInterval','storagePath','materialLibraryPath','noteColor','mindColor','linkAvoid'])ui[key]=state[key];
     return {projects:L1Search.archiveView(state.projects.map(p=>PackageModel.clone(p))),activeProjectId:state.activeProjectId,activeCanvasId:state.activeCanvasId,ui,savedAt:Date.now(),schemaVersion:3};
   }
   function save(){

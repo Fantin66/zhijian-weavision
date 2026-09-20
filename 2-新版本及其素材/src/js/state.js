@@ -82,7 +82,9 @@ const state={
   multiSel:[],           /* Shift+点击多选的元素 id 列表 */
   links:[],              /* 自由连接：[{id, aId, bId}] 元素之间的连接线 */
   focusMode:null,        /* 聚焦模式：{id, collapsedBackup:{id:bool}} */
-  layoutType:"logic",    /* 布局模板：logic/org/fishbone/timeline */
+  layoutType:"logic",    /* 排布模板：logic 逐级向右 / both 左右分布 / fourway 上下左右 /
+                            org 纯向下 / u U型环绕 / fishbone 鱼骨形 / timeline 时间轴 /
+                            left 逐级向左 / brace 括号图 */
   stylePreset:DEFAULT_STYLE, /* 全局样式：clear/glass/paper/soft */
   tempTool:null,
   hoveredNodeId:null,
@@ -92,10 +94,12 @@ const state={
   autoTheme:true,  /* G4: 默认跟随系统白天黑夜 */
   saveInterval:30,  /* G3: 自动保存间隔（秒），0=关闭 */
   storagePath:"",  /* G3: 桌面版文件存储位置 */
+  materialLibraryPath:"",  /* L5: 材料库根目录——导入材料在磁盘上的落盘镜像位置 */
   _respAuto:false,_applyingResize:false,
   search:null,
   bgColor:"#fbfbfd",
   bgPattern:"grid",      /* 纹理版式 */
+  linkAvoid:true,        /* B: 关系线避障绕行（撞到卡片才改路，不撞一律不动） */
   bgColorName:"mixed", /* 背景颜色：mixed=三色流光, red/yellow/blue=单色铺满 */
   dark:false,
   fontPreset:"serif",

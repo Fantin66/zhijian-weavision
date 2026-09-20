@@ -25,6 +25,89 @@ function subTreeH(n,GAP_Y){
   if(!ks.length)return own;
   return Math.max(own,ks.reduce((s,k)=>s+subTreeH(k,GAP_Y),0)+GAP_Y*(ks.length-1));
 }
+/* L6: 子树宽度度量。同级横向并排时的占用宽度，供组织图换行、四向布局、
+   鱼骨/时间轴槽位分配使用——这三个模板原先用固定步长，不考虑节点实际尺寸，
+   遇到不规则的真实树就互相压叠（实测 28 / 26 处重叠）。 */
+function layoutNodeWidth(n){const b=itemBounds(n);return b?b.w:0;}
+function subTreeW(n,GAP_X){
+  const ks=kidsOf(n),own=layoutNodeWidth(n);
+  if(!ks.length)return own;
+  return Math.max(own,ks.reduce((s,k)=>s+subTreeW(k,GAP_X),0)+GAP_X*(ks.length-1));
+}
+/* L6: 把一个一级分支挂到根节点的指定侧。四向/双列布局共用。 */
+function assignBranchDirection(k,dir){k.branchDirection=dir;}
+/* L6: 子树在指定方向上的"横向跨度"——朝左右展开时看高度，朝上下展开时看宽度。
+   四向布局用它做贪心均衡，避免四个方向高度悬殊。 */
+function subTreeSpan(k,dir,gapY,gapX){
+  return (dir==="left"||dir==="right")?subTreeH(k,gapY):subTreeW(k,gapX);
+}
+/* L6: 子树里"最宽的那个单节点"宽度。鱼骨形/时间轴这类把后代垂直串成一列的模板
+   用它分配槽位——若改用 subTreeW（同级并排累加），宽树会横向爆炸
+   （实测鱼骨 6791×850、时间轴 8503×464，宽高比 8.0 / 18.3）。 */
+function subTreeMaxW(n){
+  let m=layoutNodeWidth(n);
+  for(const k of kidsOf(n)){const w=subTreeMaxW(k);if(w>m)m=w;}
+  return m;
+}
+/* L6: 把后代串成一条垂直链——每一层的节点都居中对齐在父节点正下方（dir=down）
+   或正上方（dir=up），沿 y 单向推进。鱼骨的中骨、时间轴的详情列都用这个形态：
+   横向只占最宽的那个节点，不再随层数累加。 */
+function placeColumnChain(node,dir,gapY){
+  const kids=kidsOf(node);
+  if(!kids.length)return;
+  const nb=itemBounds(node);
+  let y=dir==="up"?nb.y-gapY:nb.y+nb.h+gapY;
+  for(const k of kids){
+    const kb=itemBounds(k);
+    k.x=nb.x+nb.w/2-kb.w/2;
+    if(dir==="up"){y-=kb.h;k.y=y;y-=gapY;}
+    else{k.y=y;y+=kb.h+gapY;}
+    k.branchDirection=dir;
+    placeColumnChain(k,dir,gapY);
+  }
+}
+/* L6: reflowBranch 以父节点中心为基准把子树居中展开；U 型/鱼骨/时间轴这类
+   "子树从父节点某一侧单向延伸"的模板需要在展开后再把整棵子树（不含父节点自身）
+   平移到期望的起始边。dir 指子树相对父节点的方位。 */
+function alignSubtreeToEdge(node,dir,gap){
+  const desc=[],stack=kidsOf(node).slice();
+  while(stack.length){const n=stack.pop();desc.push(n);for(const c of kidsOf(n))stack.push(c);}
+  if(!desc.length)return;
+  const nb=itemBounds(node);if(!nb)return;
+  const bs=desc.map(n=>itemBounds(n)).filter(Boolean);
+  if(!bs.length)return;
+  if(dir==="down"||dir==="up"){
+    if(dir==="down"){
+      const top=Math.min(...bs.map(b=>b.y));
+      const dy=(nb.y+nb.h+gap)-top;
+      for(const n of desc)n.y+=dy;
+    }else{
+      const bottom=Math.max(...bs.map(b=>b.y+b.h));
+      const dy=(nb.y-gap)-bottom;
+      for(const n of desc)n.y+=dy;
+    }
+  }else if(dir==="right"){
+    const left=Math.min(...bs.map(b=>b.x));
+    const dx=(nb.x+nb.w+gap)-left;
+    for(const n of desc)n.x+=dx;
+  }else{
+    const right=Math.max(...bs.map(b=>b.x+b.w));
+    const dx=(nb.x-gap)-right;
+    for(const n of desc)n.x+=dx;
+  }
+}
+/* L6: reflowBranch 把子树以父节点为中心上下对称展开。U 型/时间轴这类纵向排列
+   一级分支的模板需要子树"只往下长"，否则它会向上越过前一个分支的地盘，
+   和兄弟的子树压在一起（实测 U 型 3 处节点互压全部来自这里）。 */
+function shiftSubtreeTopTo(node,targetTop){
+  const desc=[],stack=kidsOf(node).slice();
+  while(stack.length){const n=stack.pop();desc.push(n);for(const c of kidsOf(n))stack.push(c);}
+  if(!desc.length)return;
+  const bs=desc.map(n=>itemBounds(n)).filter(Boolean);
+  if(!bs.length)return;
+  const dy=targetTop-Math.min(...bs.map(b=>b.y));
+  if(Math.abs(dy)>0.5)for(const n of desc)n.y+=dy;
+}
 /* ---------------- 1. 逻辑图（向右） ---------------- */
 function logicRightLayout(){
   const root=layoutRoot();if(!root)return;
@@ -79,7 +162,16 @@ function logicLeftLayout(){
   }
 }
 /* ---------------- 逻辑图：方向由用户拖拽后的方位决定，不再用“向左/向右”拆菜单 ---------------- */
-function logicTemplateLayout(){
+/* L6.1: opts.dir 用于"有确定方向"的模板（如 逐级向右）强制所有一级分支朝同一侧。
+   ------------------------------------------------------------
+   此前本函数只有一条判定路径：一个一级分支朝左还是朝右，看它【当前】落在根节点
+   中心线的哪一侧。这个推断对"用户手工把分支拖到某一边"是正确的，但被固定方向的
+   布局模板复用时就会串味：先点"左右分布"，一级分支已被摆到两侧；再点"逐级向右"，
+   几何推断仍然读出"左边那几个确实在左边"，于是排出来还是两侧分布——
+   用户看到的现象就是"点了逐级向右没反应，还是分布在两侧"。
+   现在只有 when opts.dir 缺省（both 模板、手工拖拽后重排）才回落到几何推断。 */
+function logicTemplateLayout(opts){
+  const force=(opts&&opts.dir)||null;
   const root=layoutRoot();if(!root)return;
   const S=state._layoutSpec||{},gapY=S.gapY||42;
   const rb=itemBounds(root);root.x=-rb.w/2;root.y=-rb.h/2;
@@ -87,7 +179,7 @@ function logicTemplateLayout(){
   const sides={left:[],right:[]};
   for(const k of kidsOf(root)){
     const kb=itemBounds(k),center=kb.x+kb.w/2;
-    const dir=k.branchDirection||((center<rootCenter-8)?"left":"right");
+    const dir=force||k.branchDirection||((center<rootCenter-8)?"left":"right");
     sides[dir==="left"?"left":"right"].push(k);
   }
   const place=(node,dir,cursor)=>{
@@ -110,130 +202,538 @@ function logicTemplateLayout(){
     for(const k of list){const span=subTreeH(k,gapY);place(k,dir,cursor);cursor+=span+gapY;}
   }
 }
+/* ---------------- 1d. 左右分布（双翼） ----------------
+   与 logicTemplateLayout 的关键差别：后者判断一个一级分支朝左还是朝右，看的是它
+   "当前"落在根节点中心线的哪一侧；首次排版后 branchDirection 被固化，从此永远
+   单侧展开——这正是"总框架排成一根竖长条"的成因（同一画布实测 1357×2857，
+   宽高比 0.47，6 个一级分支全挤在右侧纵向堆叠）。
+   本模板在排版前先按子树跨度把一级分支贪心均衡地分到左右两侧，再交给
+   logicTemplateLayout 展开，得到接近方形的双翼树（同画布实测 2236×1713，
+   宽高比 1.31）。贪心而非奇偶交替，是为了让左右两侧高度接近。 */
+function logicBothLayout(){
+  const root=layoutRoot();if(!root)return;
+  const ks=kidsOf(root);
+  if(!ks.length){logicTemplateLayout();return;}
+  const S=state._layoutSpec||{};
+  const gapY=S.gapY||42;
+  let hL=0,hR=0;
+  for(const k of ks){
+    const span=subTreeH(k,gapY)+gapY;
+    if(hL<=hR){k.branchDirection="left";hL+=span;}
+    else{k.branchDirection="right";hR+=span;}
+  }
+  logicTemplateLayout();
+}
+/* ---------------- 1e. 上下左右（四向辐射） ----------------
+   一级分支按子树跨度贪心分到 上/下/左/右 四个方向；每个方向内部沿垂直轴排列，
+   子树继续朝"远离根节点"的方向展开。连线锚点由 render-connection 的 U 型分支
+   按父子实际向量判断（layoutAxis 对该类型返回 u:true），不预设固定出口边。 */
+function fourWayLayout(){
+  const root=layoutRoot();if(!root)return;
+  const ks=kidsOf(root);
+  const rb=itemBounds(root);
+  root.x=-rb.w/2;root.y=-rb.h/2;
+  if(!ks.length)return;
+  const spec=state._layoutSpec||layoutSpec();
+  const gapY=spec.gapY,gapX=spec.gapX(1)+spec.linkLane;
+  const GAP_MAIN=Math.max(gapX,150),GAP_PERP=Math.max(gapY,54);
+  const dirs=["right","down","left","up"];
+  const used={right:0,down:0,left:0,up:0};
+  const groups={right:[],down:[],left:[],up:[]};
+  for(const k of ks){
+    let pick=dirs[0];
+    for(const d of dirs)if(used[d]<used[pick])pick=d;
+    groups[pick].push(k);
+    used[pick]+=subTreeSpan(k,pick,gapY,gapX)+GAP_PERP;
+  }
+  const cx=0,cy=0;   /* root 已归中，其中心即原点 */
+  for(const dir of dirs){
+    const list=groups[dir];if(!list.length)continue;
+    const horizontal=dir==="left"||dir==="right";
+    const total=list.reduce((s,k)=>s+subTreeSpan(k,dir,gapY,gapX),0)+GAP_PERP*(list.length-1);
+    let cursor=(horizontal?cy:cx)-total/2;
+    for(const k of list){
+      const kb=itemBounds(k),span=subTreeSpan(k,dir,gapY,gapX);
+      if(dir==="right"){k.x=root.x+rb.w+GAP_MAIN;k.y=cursor+(span-layoutNodeHeight(k))/2;}
+      else if(dir==="left"){k.x=root.x-GAP_MAIN-kb.w;k.y=cursor+(span-layoutNodeHeight(k))/2;}
+      else if(dir==="down"){k.y=root.y+rb.h+annotationLayoutReserve(root)+GAP_MAIN;k.x=cursor+span/2-kb.w/2;}
+      else{k.y=root.y-GAP_MAIN-kb.h;k.x=cursor+span/2-kb.w/2;}
+      k.branchDirection=dir;
+      reflowBranch(k,dir,spec);
+      cursor+=span+GAP_PERP;
+    }
+  }
+}
 /* ---------------- 1c. U 型布局：根在左上，子树向下再向右环绕 ----------------
    形状像字母 U：根节点位于左上角，一级节点沿左侧向下排列，
    每个一级节点的子树向右展开 —— 适合"纵向分类 + 横向细节"的场景。
-   连线由 resolveAnchors 的 u 分支按实际向量判断（父下→子上 / 父右→子左）。 */
+   连线由 resolveAnchors 的 u 分支按实际向量判断（父下→子上 / 父右→子左）。
+
+   L6 重写：原实现二级节点统一从 cx 起排、三级节点统一从 gx 起排，
+   同一层不同分支的行进游标互相不感知，层内必然压叠（实测 3 处重叠），
+   且只写到三级、更深层滞留原位。现改为逐分支调用 reflowBranch 展开整棵子树，
+   再用 alignSubtreeToEdge 把子树推到父节点右下方，层次不再有展开深度上限。 */
 function uShapeLayout(){
   const root=layoutRoot();if(!root)return;
-  const S=state._layoutSpec||{};
-  const GAP_Y=S.gapY+18||44, GAP_X=(S.gapX?S.gapX(1):64)+(S.linkLane||0);
+  const spec=state._layoutSpec||layoutSpec();
   const rb=itemBounds(root);
   root.x=-rb.w/2;root.y=-rb.h/2;
   const l1=kidsOf(root);
   if(!l1.length)return;
-  /* 一级节点：沿根下方纵向排列（U 的左竖） */
+  const GAP_Y=Math.max(spec.gapY,44);
   let cy=root.y+rb.h+annotationLayoutReserve(root)+GAP_Y;
   for(const k of l1){
     const kb=itemBounds(k);
     k.x=root.x;k.y=cy;
-    /* 二级及以下：向右横向展开（U 的底与右竖） */
-    const kids=kidsOf(k);
-    let cx=kb.x+kb.w+GAP_X;
-    let rowY=cy;
-    for(const g of kids){
-      const gb=itemBounds(g);
-      g.x=cx;g.y=rowY;
-      rowY+=gb.h+12;
-      /* 三级继续向右 */
-      const gg=kidsOf(g);
-      let gx=cx+gb.w+GAP_X*0.6;
-      let gy2=rowY-(gb.h+12);
-      for(const h of gg){
-        const hb=itemBounds(h);
-        h.x=gx;h.y=gy2;
-        gy2+=hb.h+10;
-      }
-    }
-    cy=Math.max(rowY,cy+layoutNodeHeight(k)+GAP_Y);
+    k.branchDirection="right";
+    reflowBranch(k,"right",spec);
+    alignSubtreeToEdge(k,"right",GAP_Y);
+    /* 子树只往下长：从 k 的底部开始，不再以 k 为中心上下对称展开 */
+    shiftSubtreeTopTo(k,k.y+kb.h+GAP_Y);
+    cy+=subTreeH(k,GAP_Y)+GAP_Y;
   }
 }
 /* ---------------- 2. 组织结构图（向下） ---------------- */
-function orgDownLayout(){
+/* L6: 加逐层最大行宽限制。原实现把所有叶子横向平铺，宽树直接撑爆
+   （同一画布实测 9391×478，宽高比 19.7，比竖长条更难用）。
+   单行超过上限时按贪心装箱折行，把"极宽横条"收敛成多行块状。
+   行高按该行最矮的子树高度推进，保证折行后不上下交叠。 */
+const ORG_MAX_ROW_W=2400;
+function orgDownLayout(opts){
+  const o=opts||{};
   const root=layoutRoot();if(!root)return;
   const S=state._layoutSpec||{};
   const GAP_Y=(S.gapY||14)+42, GAP_X=(S.gapX?S.gapX(1):26)+(S.linkLane||0);
+  const MAX_W=o.maxRowWidth||ORG_MAX_ROW_W;
   const rb=itemBounds(root);root.x=-rb.w/2;root.y=-rb.h/2;
-  function subTreeW(n){
-    const b=itemBounds(n),ks=kidsOf(n);
-    if(!ks.length)return b.w;
-    return Math.max(b.w,ks.reduce((s,k)=>s+subTreeW(k),0)+GAP_X*(ks.length-1));
-  }
+  const subW=(n)=>subTreeW(n,GAP_X);
   function place(node,cx,y){
     const b=itemBounds(node),ks=kidsOf(node);
     node.x=cx-b.w/2;node.y=y;
     if(!ks.length)return;
-    const totalW=ks.reduce((s,k)=>s+subTreeW(k),0)+GAP_X*(ks.length-1);
-    let x=cx-totalW/2;
+    const childY=y+b.h+annotationLayoutReserve(node)+GAP_Y;
+    const rows=[];let row=[],rowW=0;
     for(const k of ks){
-      const kw=subTreeW(k);
-      place(k,x+kw/2,y+b.h+annotationLayoutReserve(node)+GAP_Y);
-      x+=kw+GAP_X;
+      const kw=subW(k);
+      if(row.length&&rowW+GAP_X+kw>MAX_W){rows.push({items:row,w:rowW});row=[];rowW=0;}
+      rowW+=(row.length?GAP_X:0)+kw;
+      row.push(k);
+    }
+    if(row.length)rows.push({items:row,w:rowW});
+    let ry=childY;
+    for(const r of rows){
+      let x=cx-r.w/2;
+      for(const k of r.items){
+        const kw=subW(k);
+        place(k,x+kw/2,ry);
+        x+=kw+GAP_X;
+      }
+      let maxSubH=0;
+      for(const k of r.items){const h=subTreeH(k,GAP_Y);if(h>maxSubH)maxSubH=h;}
+      ry+=maxSubH+GAP_Y;
     }
   }
   place(root,0,-rb.h/2);
 }
-/* ---------------- 3. 鱼骨图（因果分析） ---------------- */
-/* I5-fix: 三级及更深节点沿同方向继续竖排——原先只排两层，深层节点滞留原位与新布局重叠 */
-function placeDeepChain(n,dir){
-  const nb=itemBounds(n);
-  let cursor=dir<0?nb.y:nb.y+nb.h+12;
-  kidsOf(n).forEach((g)=>{
-    const gb=itemBounds(g);
-    g.x=nb.x-24;
-    if(dir<0){cursor-=gb.h;g.y=cursor;cursor-=12;}
-    else{g.y=cursor;cursor+=gb.h+12;}
-    placeDeepChain(g,dir);
-  });
-}
+/* ---------------- 3. 鱼骨形（主轴横放，分支斜插上下） ----------------
+   L6 重写：原实现一级节点沿主轴用固定步长 176、垂直方向固定 60 排位，
+   二级节点用 `x-20-j*26` 固定斜排，三级起才交给 placeDeepChain——
+   槽位完全不看节点实际宽度与子树规模，遇到不规则的真实树必然压叠
+   （同一画布实测 28 处重叠）。现改为按每棵一级子树的实测包围盒分配主轴槽位，
+   子树展开复用 reflowBranch，深度不再受限。 */
 function fishboneLayout(){
   const root=layoutRoot();if(!root)return;
-  const ks=kidsOf(root);
-  const rb=itemBounds(root);
-  const SPINE_LEN=560;
-  root.x=SPINE_LEN;root.y=-rb.h/2;
+  const ks=kidsOf(root);const rb=itemBounds(root);
+  const spec=state._layoutSpec||layoutSpec();
+  root.x=0;root.y=-rb.h/2;
   if(!ks.length)return;
-  let upIdx=0,downIdx=0;
+  const GAP_Y=Math.max(spec.gapY,40);
+  const SLOT_GAP=Math.max(spec.gapX(1),90);
+  const SPINE_OFF=Math.max(rb.h,60)+90;
+  /* 槽位宽按"最宽的那个后代节点"算，后代垂直串成一列。
+     第一版曾用 reflowBranch + subTreeW（同级并排累加）分配槽位，
+     重叠确实降下来了，但宽树把主轴撑到 6791px（宽高比 8.0）。 */
+  let upX=0,downX=0;
   ks.forEach((k,i)=>{
     const up=i%2===0;
-    const slot=up?upIdx++:downIdx++;
     const b=itemBounds(k);
-    const x=SPINE_LEN-120-slot*176-b.w;
-    const y=up?-(100+slot*60)-b.h:(100+slot*60);
-    k.x=x;k.y=y;
-    kidsOf(k).forEach((g,j)=>{
-      const gb=itemBounds(g);
-      g.x=x-20-j*26;
-      g.y=up?y-(j+1)*(gb.h+14):y+b.h+12+j*(gb.h+14);
-      placeDeepChain(g,up?-1:1);
-    });
+    const w=Math.max(subTreeMaxW(k),b.w);
+    if(up){
+      k.x=-(upX+w);k.y=-(SPINE_OFF+b.h);
+      k.branchDirection="up";
+      placeColumnChain(k,"up",GAP_Y);
+      upX+=w+SLOT_GAP;
+    }else{
+      k.x=-(downX+w);k.y=SPINE_OFF;
+      k.branchDirection="down";
+      placeColumnChain(k,"down",GAP_Y);
+      downX+=w+SLOT_GAP;
+    }
   });
 }
-/* ---------------- 4. 时间轴（横向） ---------------- */
+/* ---------------- 4. 时间轴（横向，子树垂在轴下） ----------------
+   L6 重写：原实现列距固定 190、每列内二级节点居中对齐后交给 placeDeepChain，
+   列宽不看子树实际宽度，相邻列的深层子树互相压叠（同一画布实测 26 处重叠）。
+   现按每列子树实测宽度分配列宽，列内子树用 reflowBranch 一次性展开。 */
 function timelineLayout(){
   const root=layoutRoot();if(!root)return;
-  const ks=kidsOf(root);
-  const rb=itemBounds(root);
+  const ks=kidsOf(root);const rb=itemBounds(root);
+  const spec=state._layoutSpec||layoutSpec();
   root.x=-rb.w/2;root.y=-rb.h/2;
-  const GAP=190,AXIS_Y=150;
   if(!ks.length)return;
-  const totalW=ks.length*GAP;
-  let x=-totalW/2+GAP/2;
-  for(const k of ks){
+  const SLOT_GAP=Math.max(spec.gapX(1),110);
+  const AXIS_Y=150;
+  /* 同上：列宽按各列最宽的后代节点算，后代垂直串成详情列。
+     用 subTreeW 时总宽达 8503px（宽高比 18.3），比改造前的 1379×915 更难用。 */
+  const widths=ks.map(k=>Math.max(subTreeMaxW(k),layoutNodeWidth(k)));
+  const totalW=widths.reduce((a,b)=>a+b,0)+SLOT_GAP*(ks.length-1);
+  let x=-totalW/2;
+  ks.forEach((k,i)=>{
+    const w=widths[i];
     const b=itemBounds(k);
-    k.x=x-b.w/2;k.y=AXIS_Y;
-    let gy=AXIS_Y+b.h+annotationLayoutReserve(k)+42;
-    for(const g of kidsOf(k)){
-      const gb=itemBounds(g);
-      g.x=x-gb.w/2;g.y=gy;gy+=layoutNodeHeight(g)+18;
-      placeDeepChain(g,1);
-    }
-    x+=GAP;
-  }
+    k.x=x+w/2-b.w/2;k.y=AXIS_Y;
+    k.branchDirection="down";
+    placeColumnChain(k,"down",Math.max(spec.gapY,36)+10);
+    x+=w+SLOT_GAP;
+  });
 }
 /* ---------------- 5. 括号图（向右，大括号连接） ---------------- */
 function braceLayout(){
   logicRightLayout();
+}
+/* ============================================================
+   6. 一键优化排布（tidy）—— 整理，而不是重排
+   ------------------------------------------------------------
+   与上面六个模板的根本区别在"输入是什么"：
+     模板 = 重排。规则由模板决定，用户手工摆的位置全部作废，图会变成
+            该模板的规范形状（这也是用户觉得"生硬"的来源——形状不是他的）。
+     tidy = 整理。把节点【当前坐标】当作输入，认定用户摆出来的大体形状
+            就是意图，只做三件事：
+       ① 方位保持：分支原本在父节点的哪一侧，整理后仍在那一侧
+       ② 顺序保持：同一父节点的子节点，按"垂直于展开轴"的当前坐标排序，
+                   用户把谁放在上面/左边，整理后还在那里
+       ③ 间距统一：按 LAYOUT_SPEC 的层级间距等距重排，同级对齐、
+                   子树之间不再互相压叠
+   根节点原地不动，避免整张画布在屏幕上"跳走"。
+   返回值 = 被整理的一级分支数（0 表示这张图没有可整理的分支）。
+   ============================================================ */
+
+/* 判定一个分支"往哪个方向展开"——看它的【后代重心】落在它的哪一侧。
+   ------------------------------------------------------------
+   这里踩了两次坑，记录清楚，避免以后又绕回去：
+   ① 看子节点自己相对父节点的中心偏移 → 错。
+      "逐级向右"排出来的是 1357×3649 的竖列，最上面那个一级分支的中心离根
+      1800px 高、只有 216px 远，|dy|>|dx|，被读成"向上"；中间那个分支更糟，
+      dx=136 / dy=24，被读成"向下"。tidy 照此重排，整棵树被扭转 90°。
+   ② 看"整棵子树（含自己）的重心"相对根节点的方向 → 还是错。
+      子树重心同样被它在竖列里的纵向位置带偏（最上面那个分支的重心仍然在根的上方）。
+   ✅ 正确的是看【后代（不含自己）的重心】相对【自己】的方向：
+      展开方向描述的是"这棵子树往哪边长"，与它在画布上的绝对位置无关。
+      竖列最上面那个分支，后代清一色在它右侧铺开，dx≈+500 / dy≈0 → 向右。
+   ------------------------------------------------------------
+   叶子分支没有后代可看，返回 null，由调用方用同层多数方向补齐。 */
+function expandDirOfBranch(node){
+  const pb=itemBounds(node);if(!pb)return null;
+  const ncx=pb.x+pb.w/2,ncy=pb.y+pb.h/2;
+  let sx=0,sy=0,cnt=0;
+  const stack=kidsOf(node).slice(),seen=new Set();
+  while(stack.length){
+    const cur=stack.pop();if(seen.has(cur.id))continue;seen.add(cur.id);
+    const b=itemBounds(cur);
+    if(b){sx+=b.x+b.w/2;sy+=b.y+b.h/2;cnt++;}
+    for(const c of kidsOf(cur))stack.push(c);
+  }
+  if(cnt<1)return null;
+  const dx=sx/cnt-ncx,dy=sy/cnt-ncy;
+  if(Math.abs(dx)>=Math.abs(dy))return dx>=0?"right":"left";
+  return dy>=0?"down":"up";
+}
+/* 纵向分组的"行"切分：按当前主轴坐标聚类。
+   保留用户已有的行结构，而不是按宽度重新装箱——用户把"哪几个放在第一行"
+   摆出来，这件事本身就是排版意图；重新装箱会把它改掉，那就成了"重排"而不是"整理"。
+   ------------------------------------------------------------
+   阈值取"相邻间距的下四分位 × 2.5"，下限 120px。
+   这里刻意不用中位数：行数少的时候中位数会被【行间】间距占据——实测组织图
+   6 个分支 4 行，相邻间距是 [14, 507, 588, 15, 606]，中位数是 507，
+   阈值被抬到 811，结果每个间距都低于阈值、6 个分支全部并成一行，
+   用户排的 4 行全丢了（转储坐标：需求(683)/时长(1271)/材料(1286)/画布(1892)
+   被压成同一行，随后又按宽度重新折行，行的组成和用户排的不一样）。
+   下四分位落在"行内间距"那一侧（本列为 15），阈值 120 才既不吃掉行内抖动、
+   又能切开行间间距。 */
+function clusterIntoRows(items,alongOf,minGap){
+  const sorted=items.slice().sort((a,b)=>alongOf(a)-alongOf(b));
+  if(sorted.length<3)return [sorted];
+  const gaps=[];
+  for(let i=1;i<sorted.length;i++)gaps.push(alongOf(sorted[i])-alongOf(sorted[i-1]));
+  const gs=gaps.slice().sort((a,b)=>a-b);
+  const intra=gs[Math.floor((gs.length-1)*0.25)];
+  const thr=Math.max(minGap,(Number.isFinite(intra)?intra:0)*2.5);
+  /* 行的切分要按主轴坐标（alongOf）来，但行【内】的顺序必须还原成传入时的顺序——
+     调用方传进来的是"按副轴排好序"的列表（横向展开看 y、纵向展开看 x），
+     若直接沿用按 alongOf 排过的顺序，行内左右/上下次序就被 y 顺序覆盖了：
+     实测组织图第三行两个分支 材料(x=-622) / 时长(x=728) 会被排成 时长 在前，
+     用户的左右次序被无声翻转。 */
+  const origin=new Map(items.map((o,i)=>[o,i]));
+  const rows=[];let cur=[sorted[0]];
+  for(let i=1;i<sorted.length;i++){
+    if(gaps[i-1]>thr){rows.push(cur);cur=[];}
+    cur.push(sorted[i]);
+  }
+  rows.push(cur);
+  return rows.map(r=>r.slice().sort((a,b)=>origin.get(a)-origin.get(b)));
+}
+function tidyLayout(){
+  const root=layoutRoot();if(!root)return 0;
+  const spec=state._layoutSpec||layoutSpec();
+  const rb=itemBounds(root);if(!rb)return 0;
+  const rcx=rb.x+rb.w/2,rcy=rb.y+rb.h/2;
+  const GAP_MAIN=Math.max(spec.gapX(1)+spec.linkLane,150);
+  const GAP_PERP=Math.max(spec.gapY,52);
+  /* 纵向行宽上限 = 整理前的画布宽度（下限 1400，避免窄画布被压得过狠）。
+     含义是"整理不会让图变宽"。没有这道上限时，用户排成一行（或只排了一行）
+     的情况会被 tidy 重新等距后撑爆：实测组织图 2559×2414 → 7455×592，
+     宽高比 1.06 → 12.59，那不是整理，是毁图。 */
+  let bx0=Infinity,bx1=-Infinity;
+  for(const it of state.items){
+    const b=itemBounds(it);if(!b)continue;
+    if(b.x<bx0)bx0=b.x;
+    if(b.x+b.w>bx1)bx1=b.x+b.w;
+  }
+  const MAX_ROW_W=Number.isFinite(bx0)?Math.max(1400,bx1-bx0):2400;
+  /* ① 方位判定：先按"后代重心"逐个判（见 expandDirOfBranch），
+        叶子分支没后代可参照，用同层非叶子分支的多数方向补齐——
+        它们本来就是同一个布局里长出来的，方向必然一致。 */
+  const ks=kidsOf(root);
+  const raw=ks.map(k=>({k,dir:expandDirOfBranch(k)}));
+  const votes={right:0,left:0,down:0,up:0};
+  for(const r of raw)if(r.dir)votes[r.dir]++;
+  const top=Object.keys(votes).sort((a,b)=>votes[b]-votes[a])[0];
+  const majority=(top&&votes[top]>0)?top:"right";
+  const groups={right:[],left:[],down:[],up:[]};
+  for(const r of raw)groups[r.dir||majority].push(r.k);
+  /* ② 组内按当前"副坐标"排序（横向展开看 y，纵向展开看 x），保持用户设定的顺序 */
+  const perpOf=(n,d)=>{
+    const b=itemBounds(n);if(!b)return 0;
+    return (d==="right"||d==="left")?(b.y+b.h/2):(b.x+b.w/2);
+  };
+  for(const d in groups)groups[d].sort((a,b)=>perpOf(a,d)-perpOf(b,d));
+  let n=0;
+  for(const d of ["right","left","down","up"]){
+    const list=groups[d];if(!list.length)continue;
+    const horizontal=(d==="right"||d==="left");
+    /* ③ 第一遍：把每个分支先摊开一次，实测出子树的真实包围盒。
+       不另写估算函数（subTreeW/subTreeH/branchPerpSpan）是刻意的——
+       L6 里鱼骨/时间轴先炸宽 6791/8503、后留大空档，根因就是"分槽用的尺子"
+       和"实际展开用的尺子"不是同一把。实测则天然一致，改 reflowBranch
+       也不会让这里悄悄失配。 */
+    const info=list.map(k=>{
+      const b=itemBounds(k);if(!b)return null;
+      const savedX=k.x,savedY=k.y;
+      k.x=0;k.y=0;k.branchDirection=d;
+      reflowBranch(k,d,spec);
+      let ax0=Infinity,ay0=Infinity,ax1=-Infinity,ay1=-Infinity;
+      const stack=[k],seen=new Set();
+      while(stack.length){
+        const m=stack.pop();if(seen.has(m.id))continue;seen.add(m.id);
+        const mb=layoutCollisionBounds(m);
+        if(mb){if(mb.x<ax0)ax0=mb.x;if(mb.y<ay0)ay0=mb.y;if(mb.x+mb.w>ax1)ax1=mb.x+mb.w;if(mb.y+mb.h>ay1)ay1=mb.y+mb.h;}
+        for(const c of kidsOf(m))stack.push(c);
+      }
+      k.x=savedX;k.y=savedY;
+      const ok=Number.isFinite(ax0);
+      const w=ok?ax1-ax0:0, h=ok?ay1-ay0:0;
+      /* perp = 副轴占用（横排看高、竖排看宽）；along = 主轴占用（纵向分行时推进行高用） */
+      const perp=horizontal?h:w, along=horizontal?w:h;
+      /* 子树包围盒中心相对节点自身中心的偏移：后代全挂在某一侧时重心不在节点中心，
+         不补偿的话排出来整体偏。 */
+      const offPerp=horizontal?((ok?(ay0+ay1)/2:0)-b.h/2):((ok?(ax0+ax1)/2:0)-b.w/2);
+      return {k,b,perp,along,offPerp,offTop:ok?ay0:0,offBottom:ok?ay1:0};
+    }).filter(Boolean);
+    if(!info.length)continue;
+    /* ④ 第二遍：按实测尺寸等距排槽位 */
+    if(horizontal){
+      const total=info.reduce((s,o)=>s+o.perp,0)+GAP_PERP*(info.length-1);
+      let cursor=rcy-total/2;
+      for(const o of info){
+        const cy=cursor+o.perp/2;
+        o.k.y=cy-o.offPerp-o.b.h/2;
+        o.k.x=d==="right"?rb.x+rb.w+GAP_MAIN:rb.x-GAP_MAIN-o.b.w;
+        o.k.branchDirection=d;
+        reflowBranch(o.k,d,spec);
+        cursor+=o.perp+GAP_PERP;n++;
+      }
+    }else{
+      /* 纵向分组：先按当前位置恢复用户排的"行"（保留他的分行意图），
+         再在行宽超过上限时折行，最后逐行等距、行间等距。 */
+      const rows0=clusterIntoRows(info,(o)=>d==="down"?o.b.y:(o.b.y+o.b.h),120);
+      const rows=[];
+      for(const r0 of rows0){
+        let cur=[],cw=0;
+        for(const o of r0){
+          if(cur.length&&cw+GAP_PERP+o.perp>MAX_ROW_W){rows.push(cur);cur=[];cw=0;}
+          cw+=(cur.length?GAP_PERP:0)+o.perp;cur.push(o);
+        }
+        if(cur.length)rows.push(cur);
+      }
+      let ry=d==="down"?(rb.y+rb.h+annotationLayoutReserve(root)+GAP_MAIN):(rb.y-GAP_MAIN);
+      for(const r of rows){
+        const rowW=r.reduce((s,o)=>s+o.perp,0)+GAP_PERP*(r.length-1);
+        let rowH=0;
+        for(const o of r)if(o.along>rowH)rowH=o.along;
+        let cx=rcx-rowW/2;
+        for(const o of r){
+          const ccx=cx+o.perp/2;
+          o.k.x=ccx-o.offPerp-o.b.w/2;
+          o.k.y=d==="down"?(ry-o.offTop):(ry-o.offBottom);
+          o.k.branchDirection=d;
+          reflowBranch(o.k,d,spec);
+          cx+=o.perp+GAP_PERP;n++;
+        }
+        ry+=d==="down"?(rowH+GAP_PERP):-(rowH+GAP_PERP);
+      }
+    }
+  }
+  return n;
+}
+/* ============================================================
+   L8：保形整理（polishLayout）——「优化排布」的真正实现
+   ------------------------------------------------------------
+   【为什么另起一个函数：tidyLayout 的真实行为】
+   实测反馈是"点了优化排布之后，它改变了原本的排布逻辑"。这个判断准确。
+   tidyLayout 确实保住了三样东西——方位（expandDirOfBranch）、兄弟顺序
+   （组内按副坐标排）、纵向行结构（clusterIntoRows）——但它**重算了每一个
+   非根节点的坐标**：
+     · 一级分支被硬拽到 rb.x+rb.w+GAP_MAIN，用户摆的距离全部作废；
+     · 一级分支的 y 按子树实测高度重新等距居中；
+     · 再交给 reflowBranch()，逐个子节点无条件覆盖 x/y。
+   所以它产出的是"沿当前方位重新等距排一遍"，本质仍是重排，
+   与「按布局重排」的差别只在方位从哪来（一个读当前坐标、一个读模板）。
+   把它叫作"整理"名不副实，故保留为「规整排布」档，另立本函数。
+
+   【本函数的原则：用户的坐标是不可侵犯的输入】
+   只在两件事上动手，其余一律不碰：
+     ① 兄弟吸附 —— 同一父节点下、本来就铺开成一排的兄弟，若其中多数
+        已经落在一条窄带里（"想对齐，只差一点"），才把这一批吸附到同一条
+        中心线；落在带外的当作刻意远离，不动。多数不在一条带上（阶梯式、
+        错落式排布）则整组跳过——那是排版意图，不是误差。
+     ② 消重叠 —— 两两检测，真的压住了才沿更短的分离轴对推、各让一半。
+        单节点累计位移超过自身尺寸的 0.75 倍就放弃这一对：为了不重叠而把
+        某个节点甩到远处，那是重排，不是整理。
+
+   根节点固定不动（它是形状的锚点），主轴距离、兄弟顺序、节点尺寸一律不碰。
+   因此本函数的结果可预期：**没被压住、也没差一点点的节点，一个像素都不动。**
+============================================================ */
+function polishLayout(){
+  const nodes=state.items.filter(i=>i.type==="mindNode");
+  if(nodes.length<2)return {aligned:0,separated:0,skipped:0};
+  const root=layoutRoot();
+  const depthOf=n=>{let d=0,c=n;while(c&&c.parentId){c=state.items.find(i=>i.id===c.parentId);if(!c)break;d++;if(d>64)break;}return d;};
+  /* ── ① 兄弟吸附 ──────────────────────────────────────────────
+     按层级由浅到深处理：父节点先落位，子节点再量自己的那条带。 */
+  let aligned=0;
+  const ordered=nodes.slice().sort((a,b)=>depthOf(a)-depthOf(b));
+  for(const p of ordered){
+    const kids=kidsOf(p).filter(k=>k.type==="mindNode");
+    if(kids.length<2)continue;
+    const pb=itemBounds(p);if(!pb)continue;
+    const bs=kids.map(k=>itemBounds(k));
+    if(bs.some(b=>!b))continue;
+    /* 展开方向：子节点重心相对父节点中心（与 expandDirOfBranch 同一判据） */
+    let sx=0,sy=0;
+    for(const b of bs){sx+=b.x+b.w/2;sy+=b.y+b.h/2;}
+    sx=sx/bs.length-(pb.x+pb.w/2);
+    sy=sy/bs.length-(pb.y+pb.h/2);
+    const horizontal=Math.abs(sx)>=Math.abs(sy);
+    const vals=bs.map(b=>horizontal?(b.y+b.h/2):(b.x+b.w/2));
+    const sorted=vals.slice().sort((a,b)=>a-b);
+    const med=sorted[Math.floor((sorted.length-1)/2)];
+    const spread=sorted[sorted.length-1]-sorted[0];
+    if(spread<1.5)continue;                        /* 本来就齐，不用动 */
+    /* 窄带半径取"这一排里最大节点尺寸"的三分之一：一条带上能容纳肉眼看不出的
+       参差，但装不下成心摆出来的阶梯。 */
+    const refSize=horizontal?Math.max.apply(null,bs.map(b=>b.h)):Math.max.apply(null,bs.map(b=>b.w));
+    const band=Math.max(10,refSize*0.35);
+    const inBand=vals.filter(v=>Math.abs(v-med)<=band);
+    /* 多数（≥70%）在带内才吸附，否则认定整组是刻意错落 */
+    if(inBand.length/vals.length<0.7)continue;
+    const target=inBand.reduce((s,v)=>s+v,0)/inBand.length;
+    let moved=0;
+    for(let i=0;i<kids.length;i++){
+      const cur=vals[i];
+      if(Math.abs(cur-med)>band)continue;          /* 带外的刻意远离，不动 */
+      const d=target-cur;
+      if(Math.abs(d)<0.5)continue;
+      if(horizontal)kids[i].y+=d;else kids[i].x+=d;
+      moved++;
+    }
+    if(moved)aligned++;
+  }
+  /* ── ② 消重叠 ────────────────────────────────────────────── */
+  const shiftUsed=new Map(nodes.map(n=>[n.id,0]));
+  const canMove=(n,amt)=>{
+    const b=itemBounds(n);if(!b)return false;
+    return (shiftUsed.get(n.id)||0)+amt<=Math.max(b.w,b.h)*0.75;
+  };
+  const move=(n,dx,dy)=>{
+    n.x+=dx;n.y+=dy;
+    shiftUsed.set(n.id,(shiftUsed.get(n.id)||0)+Math.abs(dx)+Math.abs(dy));
+  };
+  let separated=0,skipped=0;
+  for(let pass=0;pass<6;pass++){
+    let any=false;
+    for(let i=0;i<nodes.length;i++){
+      for(let j=i+1;j<nodes.length;j++){
+        const a=nodes[i],b=nodes[j];
+        const ba=layoutCollisionBounds(a),bb=layoutCollisionBounds(b);
+        if(!ba||!bb)continue;
+        const ox=Math.min(ba.x+ba.w,bb.x+bb.w)-Math.max(ba.x,bb.x);
+        const oy=Math.min(ba.y+ba.h,bb.y+bb.h)-Math.max(ba.y,bb.y);
+        if(ox<=4||oy<=4)continue;
+        const push=(ox<oy?ox:oy)/2+8;
+        const aRoot=(a===root),bRoot=(b===root);
+        if(ox<oy){
+          if(aRoot){if(canMove(b,push)){move(b,push,0);separated++;any=true;}else skipped++;}
+          else if(bRoot){if(canMove(a,push)){move(a,-push,0);separated++;any=true;}else skipped++;}
+          else{
+            const okA=canMove(a,push),okB=canMove(b,push);
+            if(okA)move(a,-push,0);
+            if(okB)move(b,push,0);
+            if(okA||okB){separated++;any=true;}else skipped++;
+          }
+        }else{
+          if(aRoot){if(canMove(b,push)){move(b,0,push);separated++;any=true;}else skipped++;}
+          else if(bRoot){if(canMove(a,push)){move(a,0,-push);separated++;any=true;}else skipped++;}
+          else{
+            const okA=canMove(a,push),okB=canMove(b,push);
+            if(okA)move(a,0,-push);
+            if(okB)move(b,0,push);
+            if(okA||okB){separated++;any=true;}else skipped++;
+          }
+        }
+      }
+    }
+    if(!any)break;
+  }
+  return {aligned,separated,skipped};
+}
+/* 排布收尾：附属元素归位 → 迭代避让 → 统计残余重叠。
+   applyAutoLayout 与 tidyLayout 共用，两者此前各写一份会导致口径漂移。 */
+function settleLayoutOverlaps(){
+  let ov=1,guard=0;
+  while(ov>0&&guard<4){
+    avoidOverlap({attachmentsOnly:true});
+    detachAttachmentsFromNodes();
+    ov=0;
+    const its=state.items.filter(i=>i.type!=="stroke"&&i.type!=="connector");
+    for(let i=0;i<its.length;i++)for(let j=i+1;j<its.length;j++){
+      const a=layoutCollisionBounds(its[i]),b2=layoutCollisionBounds(its[j]);
+      if(!a||!b2)continue;
+      const ox=Math.min(a.x+a.w,b2.x+b2.w)-Math.max(a.x,b2.x);
+      const oy=Math.min(a.y+a.h,b2.y+b2.h)-Math.max(a.y,b2.y);
+      if(ox>4&&oy>4)ov++;
+    }
+    guard++;
+  }
 }
 /* ============================================================
    布局切换方法论（避免"切换即混乱"）
@@ -315,7 +815,23 @@ function placeAttachments(opts){
   const nodes=state.items.filter(i=>i.type==="mindNode");
   const attach=state.items.filter(i=>i.type==="note"||i.type==="fileCard");
   if(!nodes.length||!attach.length)return;
-  const below=o.below||"right";   /* right=放节点右侧；down=放节点下方（组织图用） */
+  /* L6: 附件落位方向优先跟随宿主节点的分支朝向（branchDirection）——左右分布 /
+     四向布局下，左侧或上侧分支的便签若仍统一放到右侧，会压到根节点或对侧分支上。
+     below 仅作兜底方向（宿主无朝向信息时使用）。 */
+  const below=o.below||"right";
+  /* L6: 节点边界缓存一次。附件落位要在几个候选方向里挑一个"不压节点"的，
+     若逐个候选现算 itemBounds 的话——mindNode 会触发 measureText——
+     27 个附件 × 4 个候选 × 47 个节点就是上万次文字测量。 */
+  const nodeBounds=nodes.map(n=>({id:n.id,b:layoutCollisionBounds(n)})).filter(x=>x.b);
+  const hitsNode=(r)=>{
+    for(const x of nodeBounds){
+      const b=x.b;
+      const ox=Math.min(r.x+r.w,b.x+b.w)-Math.max(r.x,b.x);
+      const oy=Math.min(r.y+r.h,b.y+b.h)-Math.max(r.y,b.y);
+      if(ox>2&&oy>2)return true;
+    }
+    return false;
+  };
   const ownerByItem=new Map();
   for(const n of nodes)for(const id of n.attachIds||[])ownerByItem.set(id,n);
   /* 每个节点已占用的附属槽位，避免多个便签叠在一起 */
@@ -342,14 +858,32 @@ function placeAttachments(opts){
     if(a.annotation)a.annotationSide="bottom";
     const nb=itemBounds(best);
     const idx=(slots.get(best.id)||0);
-    slots.set(best.id,idx+1);
-    if(below==="down"){
-      a.x=nb.x+idx*(ab.w+GAP);
-      a.y=nb.y+nb.h+GAP;
-    }else{
-      a.x=nb.x+nb.w+GAP;
-      a.y=nb.y+idx*(ab.h+GAP);
+    const dir=best.branchDirection||below;
+    /* L6: 候选方向按"避让子树"排序——节点朝哪边长子树，就先别往那边放附件；
+       再逐个候选检测是否压到别的节点，取第一个干净的。
+       实测未做这层检测时，"附件压节点"是全部重叠里唯一的大头
+       （8 种排布共 30 处重叠，其中 27 处是这一类，附件↔附件为 0）。 */
+    const order = dir==="right" ? ["down","up","left","right"]
+                : dir==="left"  ? ["down","up","right","left"]
+                : dir==="up"    ? ["right","left","down","up"]
+                :                 ["right","left","up","down"];
+    const slotAt=(d,ix)=>{
+      if(d==="down")return{x:nb.x+ix*(ab.w+GAP),y:nb.y+nb.h+GAP,w:ab.w,h:ab.h};
+      if(d==="up")return{x:nb.x+ix*(ab.w+GAP),y:nb.y-ab.h-GAP,w:ab.w,h:ab.h};
+      if(d==="left")return{x:nb.x-ab.w-GAP,y:nb.y+ix*(ab.h+GAP),w:ab.w,h:ab.h};
+      return{x:nb.x+nb.w+GAP,y:nb.y+ix*(ab.h+GAP),w:ab.w,h:ab.h};
+    };
+    let done=false;
+    for(const d of order){
+      /* 先试"独占槽位"，压住了就退而求其次用第 0 槽位再试一遍 */
+      for(const ix of [idx,0]){
+        const cand=slotAt(d,ix);
+        if(!hitsNode(cand)){a.x=cand.x;a.y=cand.y;done=true;break;}
+      }
+      if(done)break;
     }
+    if(!done){const cand=slotAt(order[0],idx);a.x=cand.x;a.y=cand.y;}
+    slots.set(best.id,idx+1);
   }
   /* 最后：附属元素之间做一次轻量避让，防止互相叠压 */
   for(let pass=0;pass<3;pass++){
@@ -454,58 +988,41 @@ function applyAutoLayout(){
   /* ① 归一 → ② 分级 → ③ 排序 → ④ 排布 → ⑤ 归位附属 */
   normalizeTree();
   sortSiblings();
+  /* L6: 清空上一次排布留下的分支朝向，各模板会各自重新赋值。
+     不清的话，placeAttachments（按 branchDirection 决定把便签放到节点哪一侧）
+     会沿用上一个布局的方向，把附件丢到已经被子树占满的那一边。 */
+  for(const it of state.items){if(it.type==="mindNode")delete it.branchDirection;}
   for(const it of state.items){if(it.annotation)it.annotationSide="bottom";}
   /* 前置：美学参数 + 密度 + 方向决策 */
   const spec=layoutSpec();
   const dir=decideLayoutDirection(spec);
   state._layoutSpec=spec;state._layoutDir=dir;
   const t=dir.dir;
-  /* 模板映射：逻辑图按一级分支的实际左右方位排布。 */
+  /* L6 模板分发：每种排布都走各自的真实模板，不再把多种类型压成同一个 logic。
+     原实现把 both 映射成 logic，再用后置的 translateSubtree 把一级子树平移到根两侧；
+     但子树朝向已在 logicTemplateLayout 内被固化成单向，平移之后左右两侧的子树
+     仍然朝同一侧延伸，双列并没有真正形成——实测宽度只从 1357 增到 1814，
+     一级分支方位依旧是 1/1/3/1（没分开）。现在由 logicBothLayout 在排版"之前"
+     先分侧，从根上解决。 */
   let eff=t;
-  if(t==="both")eff="logic";
-  if(t==="down")eff="org";
+  if(t==="down")eff="org";       /* 兼容旧存档命名 */
   if(eff==="org")orgDownLayout();
-  else if(eff==="logic")logicTemplateLayout();
+  else if(eff==="both")logicBothLayout();
+  else if(eff==="fourway")fourWayLayout();
+  /* L6.1 固定方向的模板必须显式指定朝向：见 logicTemplateLayout 里 force 参数的说明。
+     "逐级向右"若回落到几何推断，点过"左右分布"之后再点它仍然会是两侧分布。 */
+  else if(eff==="logic")logicTemplateLayout({dir:"right"});
   else if(eff==="left")logicLeftLayout();
   else if(eff==="u")uShapeLayout();
   else if(eff==="fishbone")fishboneLayout();
   else if(eff==="timeline")timelineLayout();
   else if(eff==="brace")braceLayout();
-  else logicTemplateLayout();
-  /* 双向分叉后处理：把一级节点按奇偶分到根左右两侧 */
-  if(t==="both"){
-    const root=layoutRoot();if(root){
-      const kids=kidsOf(root);
-      const rb=itemBounds(root);
-      const gx=spec.gapX(1)+spec.gapY;
-      const rootW=rb.w;
-      for(let i=0;i<kids.length;i++){
-        const k=kids[i];
-        const kb=itemBounds(k);
-        const targetX=(i%2===0)? (root.x-gx-rootW-kb.w/2) : (root.x+rootW+gx+kb.w/2);
-        const dx=targetX-kb.x;
-        translateSubtree(k,dx,0);
-      }
-    }
-  }
+  else logicTemplateLayout({dir:"right"});
   /* ⑤ 附属元素归位（组织图用下方，其余用右侧） */
   placeAttachments({below:(t==="org"||t==="down")?"down":"right"});
   /* ⑥ 最终防重叠：自动树的节点位置已经由子树尺寸计算得到。
      这里只移动便签/材料，不能再把节点逐个推开，否则会破坏父子对齐。 */
-  let ov=1,guard=0;
-  while(ov>0&&guard<4){
-    avoidOverlap({attachmentsOnly:true});
-    ov=0;
-    const its=state.items.filter(i=>i.type!=="stroke"&&i.type!=="connector");
-    for(let i=0;i<its.length;i++)for(let j=i+1;j<its.length;j++){
-      const a=layoutCollisionBounds(its[i]),b2=layoutCollisionBounds(its[j]);
-      if(!a||!b2)continue;
-      const ox=Math.min(a.x+a.w,b2.x+b2.w)-Math.max(a.x,b2.x);
-      const oy=Math.min(a.y+a.h,b2.y+b2.h)-Math.max(a.y,b2.y);
-      if(ox>4&&oy>4)ov++;
-    }
-    guard++;
-  }
+  settleLayoutOverlaps();
   /* 清空临时态 */
   delete state._layoutSpec;delete state._layoutDir;
 }
@@ -532,15 +1049,58 @@ function avoidOverlap(options){
           /* 有重叠，推开 */
           const pushX=(ox/2+8);
           const pushY=(oy/2+8);
-          /* 沿较短轴推开 */
-          if(ox<oy){ a.x-=pushX; b.x+=pushX; }
-          else { a.y-=pushY; b.y+=pushY; }
+          /* 沿较短轴推开，**方向必须按两者实际相对位置定**。
+             原先写死 `a.x-=; b.x+=` / `a.y-=; b.y+=`，等价于"默认 a 在左上"。
+             一旦 a 实际位于 b 的右/下方，这条规则就是把两者**往一起推**：
+             三轮迭代后它们会互相穿过、上下顺序颠倒，且仍留着大片重叠。
+             实测两张 460×330 的形变预览在起点接近时正是这个下场
+             （2026-09-20 修：资源库/形变展开互相遮挡）。 */
+          if(ox<oy){
+            const s=(a.x+a.w/2<b.x+b.w/2)?-1:1;
+            a.x+=s*pushX; b.x-=s*pushX;
+          }else{
+            const s=(a.y+a.h/2<b.y+b.h/2)?-1:1;
+            a.y+=s*pushY; b.y-=s*pushY;
+          }
           moved=true;
         }
       }
     }
     if(!moved) break;
   }
+}
+
+/* L6: avoidOverlap({attachmentsOnly:true}) 只在"附件↔附件"之间避让，
+   从不处理"便签压住节点"这一种重叠——因为节点位置由布局算法算出，不能被随意挪动
+   （挪了就破坏父子对齐）。于是这块只能由本函数兜住：只推附件一侧。
+   节点在本函数内不移动，其边界缓存一次；附件被推后按需重算边界。
+   （mindNode 的 itemBounds 要现场量文字，逐轮重算是这类避让最贵的部分。） */
+function detachAttachmentsFromNodes(){
+  const nodes=state.items.filter(i=>i.type==="mindNode");
+  const atts=state.items.filter(i=>i.type==="note"||i.type==="fileCard");
+  if(!nodes.length||!atts.length)return 0;
+  const nb=nodes.map(n=>layoutCollisionBounds(n));
+  let moved=0;
+  for(let pass=0;pass<3;pass++){
+    let any=false;
+    for(const a of atts){
+      let ab=layoutCollisionBounds(a);if(!ab)continue;
+      for(let i=0;i<nodes.length;i++){
+        const b=nb[i];if(!b)continue;
+        const ox=Math.min(ab.x+ab.w,b.x+b.w)-Math.max(ab.x,b.x);
+        const oy=Math.min(ab.y+ab.h,b.y+b.h)-Math.max(ab.y,b.y);
+        if(ox>4&&oy>4){
+          /* 沿重叠更短的轴推出去：纵向通常是空的，优先往上下让位 */
+          if(ox<oy)a.x+=(ab.x+ab.w/2<b.x+b.w/2)?-(ox+10):(ox+10);
+          else a.y+=(ab.y+ab.h/2<b.y+b.h/2)?-(oy+10):(oy+10);
+          ab=layoutCollisionBounds(a);
+          any=true;moved++;
+        }
+      }
+    }
+    if(!any)break;
+  }
+  return moved;
 }
 
 /* 拖拽后的局部分支重排：节点的位置是用户的意图，子树的朝向随节点相对父级的方位变化。
@@ -1020,6 +1580,12 @@ function showCtxMenu(e,item){
     }else if(t==="fileCard"){
       const pv=mkItem(ICON.view,item.previewOpen?"收起预览":"展开预览","",false);pv.onclick=()=>{hideCtxMenu();togglePreviewMorph(item);};
       body.appendChild(pv);
+      /* L5: 材料在磁盘上的位置——材料库镜像；未落盘时按需补写后再定位 */
+      if(typeof L1Material!=="undefined"&&L1Material.isDesktop()){
+        const fd=mkItem(ICON.folder,"在文件夹中显示","",false);
+        fd.onclick=()=>{hideCtxMenu();const f=state.files.find(x=>x.id===item.fileId);if(f)L1Material.reveal(f);else toast("附件记录已不存在");};
+        body.appendChild(fd);
+      }
     }
     const s3=document.createElement("div");s3.className="csep";body.appendChild(s3);
     /* 第三段：操作 — 复制、删除 */
@@ -1045,6 +1611,13 @@ function showCtxMenu(e,item){
         sub.appendChild(fi);
       });
       body.appendChild(fn);body.appendChild(sub);
+    }
+    /* L5: 直接从磁盘导入材料——不改动原文件，只读入内容并镜像到材料库 */
+    if(typeof L1Material!=="undefined"&&L1Material.isDesktop()){
+      const s4=document.createElement("div");s4.className="csep";body.appendChild(s4);
+      const imp=mkItem(ICON.import,"从磁盘导入材料…",null,false);
+      imp.onclick=()=>{hideCtxMenu();L1Material.pickImport();};
+      body.appendChild(imp);
     }
   }
   ctxMenu.style.display="block";

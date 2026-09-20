@@ -27,8 +27,29 @@ contextBridge.exposeInMainWorld("electronAPI", {
   importFantin: (presetPath) => ipcRenderer.invoke("import-fantin", presetPath),
   importFolder: () => ipcRenderer.invoke("import-folder"),
 
-  /* 文件/目录对话框 */
-  selectDirectory: () => ipcRenderer.invoke("select-directory"),
+  /* 文件/目录对话框
+     L5: selectDirectory 为零调用方死导出，已由材料库目录选择取代。
+     M1-fix: 这里原先叫 chooseMaterialLibrary，前端 l1-material.js 调的却是
+     materialLibraryChoose —— 名字对不上，取到的是 undefined，调用即抛
+     TypeError；而调用点是个 async 箭头函数，异常变成未处理的 Promise 拒绝，
+     于是"点击更改目录完全没反应"（不弹窗、不报错、无 toast）。
+     统一到 materialLibrary* 家族命名，与下面六个别名保持一致。 */
+  materialLibraryChoose: () => ipcRenderer.invoke("material-library-choose"),
+
+  /* L5: 材料库——导入材料的本地落盘镜像（<根目录>/<项目名>/<文件名>） */
+  materialLibraryDefault: () => ipcRenderer.invoke("material-library-default"),
+  materialLibraryOpen: (data) => ipcRenderer.invoke("material-library-open", data),
+  materialLibraryReveal: (data) => ipcRenderer.invoke("material-library-reveal", data),
+  materialLibraryWrite: (data) => ipcRenderer.invoke("material-library-write", data),
+  materialLibraryStats: (data) => ipcRenderer.invoke("material-library-stats", data),
+  materialLibraryDelete: (data) => ipcRenderer.invoke("material-library-delete", data),
+
+  /* L5: 给路径即导入——多选对话框 + 按路径读取内容 */
+  selectMaterialFiles: () => ipcRenderer.invoke("select-material-files"),
+  readMaterialFiles: (paths) => ipcRenderer.invoke("read-material-files", { paths }),
+
+  /* L5: 材料卡「在文件夹中显示」 */
+  revealBlob: (data) => ipcRenderer.invoke("reveal-blob", data),
 
   /* 系统路径
      I5-fix: getUserDataPath / getDocumentsPath 为无调用方的死导出，已删除 */
@@ -38,6 +59,8 @@ contextBridge.exposeInMainWorld("electronAPI", {
 
   /* G8: blob 写临时文件后用系统默认应用打开 */
   openBlob: (data) => ipcRenderer.invoke("open-blob", data),
+  /* M1.4: 旧版 .doc 文本+格式抽取（主进程跑，渲染层只拿 blocks） */
+  docExtract: (data) => ipcRenderer.invoke("doc-extract", data),
 
   /* G8: 文件关联 — 查询待导入的 .fantin 路径 */
   getOpenFile: () => ipcRenderer.invoke("get-open-file"),

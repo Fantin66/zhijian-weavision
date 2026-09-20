@@ -43,11 +43,17 @@ function setupAutoSave(){
   var sec=state.saveInterval;
   if(sec>0){_saveTimer=setInterval(saveWhenIdle,sec*1000);}
 }
-/* I5: 统一版本标签——网页与桌面共用一个来源（桌面端异步取 package.json 版本号，
-   修复关于页把 Promise 拼进字符串显示"v[object Promise]"、网页端回退旧标签"G3"的问题） */
-let APP_VERSION="L1.2";
-if(window.electronAPI&&window.electronAPI.getVersion){
-  try{window.electronAPI.getVersion().then(function(v){if(v)APP_VERSION="v"+v;}).catch(function(){});}catch(e){}
+/* 版本标签统一从 config.js 的 APP_VERSION 读（唯一来源），这里只负责刷进界面。
+   I5 曾把桌面端的 package.json 版本号拼成 "v0.18.x" 显示在关于页；
+   M1-fix：那样做等于"给人看的标签"和"semver 构建号"混在一个字段里，
+   左下角（HTML 写死）和标题（HTML 写死）又各是另一份，三处对不上。
+   现在统一刷成 APP_VERSION，改版本只动 config.js 一处。 */
+function applyVersionLabel(){
+  try{
+    const bv=document.querySelector(".bf-ver");
+    if(bv)bv.textContent=APP_VERSION;
+    document.title="织见 · 思维关系板 · "+APP_VERSION;
+  }catch(e){}
 }
 function loadState(archive){
   try{
@@ -80,11 +86,13 @@ function loadState(archive){
       state.sideCollapsed=!!d.ui.sideCollapsed;
       if(d.ui.dark!==undefined)state.dark=!!d.ui.dark;
       if(d.ui.bgPattern)state.bgPattern=d.ui.bgPattern;
+      if(d.ui.linkAvoid!==undefined)state.linkAvoid=!!d.ui.linkAvoid;
       if(d.ui.reducedMotion!==undefined)state.reducedMotion=d.ui.reducedMotion;
       if(d.ui.fantinIcon!==undefined)state.fantinIcon=d.ui.fantinIcon;
       if(d.ui.autoTheme!==undefined)state.autoTheme=d.ui.autoTheme;
       if(d.ui.saveInterval!==undefined)state.saveInterval=d.ui.saveInterval;
       if(d.ui.storagePath)state.storagePath=d.ui.storagePath;
+      if(d.ui.materialLibraryPath)state.materialLibraryPath=d.ui.materialLibraryPath;
       if(d.ui.bgColorName){
         /* 旧颜色名迁移：default→mixed, eye/cream/kraft→mixed, blue→blue */
         var legacyBg={default:"mixed",eye:"green",cream:"mixed",blue:"blue",kraft:"mixed"};
@@ -97,7 +105,9 @@ function loadState(archive){
       if(d.ui.mindMode)state.mindMode=d.ui.mindMode;
       if(d.ui.mindColorMode==="single"||d.ui.mindColorMode==="auto")state.mindColorMode=d.ui.mindColorMode;
       if(d.ui.layoutType){
-        const legacyLayout={right:"logic",left:"logic",u:"logic",brace:"logic"};
+        /* L6：left/u/brace 在旧版本里被降级成 logic（当时这些模板根本不可达）。
+           现在它们都是可用的真实模板，除 right 仍等价于逐级向右外，一律原样恢复。 */
+        const legacyLayout={right:"logic"};
         state.layoutType=legacyLayout[d.ui.layoutType]||d.ui.layoutType;
       }
       if(d.ui.stylePreset){let sp=d.ui.stylePreset;if(STYLE_ALIAS[sp])sp=STYLE_ALIAS[sp];if(STYLE_PRESETS[sp])state.stylePreset=sp;}
@@ -309,6 +319,15 @@ function applyTheme(){
 }
 function _applyThemeInner(){
   document.documentElement.setAttribute("data-theme",state.dark?"dark":"light");
+  /* L8.1: 把主题判据落盘，供 index.html 里的启动内联脚本同步读取。
+     applyTheme() 是异步的——autoTheme 时还要等一次 getSystemTheme 的 IPC 往返才
+     拿到结论，首帧等不起它。内联脚本必须在解析 <head> 时就独立得出同一个结论，
+     两边的判据一旦不一致（比如内联按系统主题、applyTheme 按手动偏好），
+     就会在启动时来回跳一下，表现为另一种"闪"。 */
+  try{
+    localStorage.setItem("zhijian-theme",state.dark?"dark":"light");
+    localStorage.setItem("zhijian-autoTheme",state.autoTheme?"1":"0");
+  }catch(e){}
   document.body.classList.toggle("reduced-motion",!!state.reducedMotion);
   document.documentElement.dataset.style=state.stylePreset||DEFAULT_STYLE;
   document.documentElement.dataset.variant=variantOf(state.stylePreset||DEFAULT_STYLE);
@@ -926,13 +945,22 @@ function showFloatMenu(anchorEl,items){
   floatMenu.innerHTML="";
   for(const it of items){
     if(it.sep){const s=document.createElement("div");s.className="fm-sep";floatMenu.appendChild(s);continue;}
+    /* note：说明性文字，不可点击（用于"暂无引用""共 N 处引用"这类头部） */
+    if(it.note){const n=document.createElement("div");n.className="fm-note";n.textContent=it.label;floatMenu.appendChild(n);continue;}
     const el=document.createElement("div");
     el.className="fm-item"+(it.danger?" danger":"");
     el.innerHTML='<span class="fm-icon">'+(it.icon||"")+'</span><span>'+it.label+'</span>';
     el.addEventListener("click",()=>{hideFloatMenu();if(it.onClick)it.onClick();});
     floatMenu.appendChild(el);
   }
+  floatMenu.classList.add("show");   /* 先显示再量：隐藏时 offsetWidth/Height 恒为 0，只能吃兜底值 */
   var r=anchorEl.getBoundingClientRect();
+  /* 锚点若已脱离文档（被重渲染换掉），rect 全为 0 —— 直接用它会把菜单丢到窗口左上角。
+     退化为指针位置，观感上仍然"弹在我点的地方"。 */
+  if(!r.width&&!r.height&&!r.top&&!r.left){
+    var lp=(typeof lastPointer!=="undefined"&&lastPointer)||{x:24,y:80};
+    r={left:lp.x,right:lp.x,top:lp.y,bottom:lp.y,width:0,height:0};
+  }
   var mw=floatMenu.offsetWidth||180,mh=floatMenu.offsetHeight||100;
   var left=r.right+4;
   if(left+mw>window.innerWidth)left=Math.max(4,r.left-mw-4);
@@ -940,7 +968,6 @@ function showFloatMenu(anchorEl,items){
   if(top+mh>window.innerHeight)top=Math.max(4,window.innerHeight-mh-4);
   floatMenu.style.left=left+"px";
   floatMenu.style.top=top+"px";
-  floatMenu.classList.add("show");
   /* F7: 修复 pointerdown 过早关闭菜单 — 原代码在 document 上加 {once:true} 的 pointerdown 监听，
      点击菜单项时 pointerdown 先于 click 触发，菜单被清空后 click 找不到目标 → 按钮无反应。
      修复：只在外部点击时关闭，内部点击放行让 click 正常执行。 */
@@ -988,9 +1015,13 @@ function startInlineRename(el,nameSelector,currentName,onConfirm){
 }
 /* F8: 轻量移动文件 — 替代 showMoveFile 的居中弹窗，用 showFloatMenu 列文件夹 */
 function showMoveFileMenu(fileId,anchorEl){
-  const items=[{icon:ICON.folder,label:"未分类（根级）",onClick:()=>moveLibraryFile(fileId,null)}];
+  /* 支持传单个 id 或 id 数组：多选态下走批量移动 */
+  const ids=Array.isArray(fileId)?fileId:[fileId];
+  const many=ids.length>1;
+  const go=(folderId)=>()=>many?moveFilesBatch(ids,folderId):moveLibraryFile(ids[0],folderId);
+  const items=[{icon:ICON.folder,label:many?("移到「未分类」（"+ids.length+" 个文件）"):"未分类（根级）",onClick:go(null)}];
   for(const folder of state.folders){
-    items.push({icon:ICON.folder,label:folderPathName(folder),onClick:()=>moveLibraryFile(fileId,folder.id)});
+    items.push({icon:ICON.folder,label:folderPathName(folder),onClick:go(folder.id)});
   }
   showFloatMenu(anchorEl,items);
 }
@@ -1361,6 +1392,7 @@ function init(){
   setTool("select");
   syncHistoryBtns();
   mountControls();
+  applyVersionLabel();   /* M1: 左下角状态栏与窗口标题的版本号，统一刷成 APP_VERSION */
   applySide();
   applyTheme();
   applyFontPreset();
@@ -1594,6 +1626,22 @@ function renderSettingsContent(catId,content){
   }
   else if(catId==="data"){
     var isDesktop=window.electronAPI&&window.electronAPI.isDesktop;
+    var matReady=!!(window.electronAPI&&window.electronAPI.materialLibraryWrite&&typeof L1Material!=="undefined");
+    /* L5: 材料库——导入材料的本地落盘镜像；目录结构 <根目录>/<项目名>/<文件名> */
+    var matSection=!matReady?"":
+      '<div style="margin-bottom:20px"><div style="font-size:12px;color:var(--ink-dim);margin-bottom:6px">材料库目录</div>'+
+      '<div id="matPath" style="font-size:12px;color:var(--ink);word-break:break-all;background:var(--surface);border:1px solid var(--card-border);border-radius:8px;padding:8px 10px">'+escapeHtml(L1Material.rootSync())+'</div>'+
+      '<div style="display:flex;gap:6px;margin-top:8px;flex-wrap:wrap">'+
+      '<button id="matChoose" style="padding:8px 16px;border:1px solid var(--card-border);border-radius:8px;background:var(--surface);color:var(--ink);cursor:pointer;font:600 12px var(--font)">更改目录</button>'+
+      '<button id="matOpen" style="padding:8px 16px;border:1px solid var(--card-border);border-radius:8px;background:var(--surface);color:var(--ink);cursor:pointer;font:600 12px var(--font)">打开材料库</button>'+
+      '<button id="matSync" style="padding:8px 16px;border:1px solid var(--card-border);border-radius:8px;background:var(--surface);color:var(--ink);cursor:pointer;font:600 12px var(--font)">重新同步当前项目</button>'+
+      '<button id="matReset" style="padding:8px 16px;border:1px solid var(--card-border);border-radius:8px;background:var(--surface);color:var(--ink-dim);cursor:pointer;font:600 12px var(--font)">恢复默认</button>'+
+      '</div>'+
+      '<div id="matStats" style="font-size:11px;color:var(--ink-faint);margin-top:6px">正在统计…</div>'+
+      '<div style="font-size:11px;color:var(--ink-faint);margin-top:4px">导入的每份材料都会同步写入该目录，按项目名分文件夹，可直接在资源管理器中查找。删除项目只解除引用，不会删除这里已有的文件。</div></div>'+
+      '<div style="margin-bottom:20px"><div style="font-size:12px;color:var(--ink-dim);margin-bottom:6px">从磁盘导入材料</div>'+
+      '<button id="matImport" style="padding:8px 16px;border:1px solid var(--accent);border-radius:8px;background:var(--accent-soft);color:var(--accent);cursor:pointer;font:600 12px var(--font)">选择文件并导入当前项目</button>'+
+      '<div style="font-size:11px;color:var(--ink-faint);margin-top:4px">不改动原文件，只把内容读入画布并镜像到材料库。</div></div>';
     content.innerHTML=
       '<h4 style="margin:0 0 16px;font-size:14px">数据管理</h4>'+
       '<div style="margin-bottom:20px"><div style="font-size:12px;color:var(--ink-dim);margin-bottom:6px">存储方式</div>'+
@@ -1608,6 +1656,12 @@ function renderSettingsContent(catId,content){
       '<div style="margin-bottom:20px"><div style="font-size:12px;color:var(--ink-dim);margin-bottom:6px">数据备份</div>'+
       '<button id="setExportAll" style="padding:8px 16px;border:1px solid var(--accent);border-radius:8px;background:var(--accent-soft);color:var(--accent);cursor:pointer;font:600 12px var(--font)">导出全部数据</button>'+
       '<div style="font-size:11px;color:var(--ink-faint);margin-top:4px">所有项目、画布与附件的完整备份（JSON）；可通过「导入 → 从备份恢复」还原</div></div>'+
+      matSection+
+      '<div style="margin-bottom:20px"><div style="font-size:12px;color:var(--ink-dim);margin-bottom:6px">附件存储</div>'+
+      '<div id="attachStats" style="font-size:12px;color:var(--ink)">正在统计…</div>'+
+      '<div style="display:flex;gap:6px;margin-top:8px"><button id="setAttachScan" style="padding:8px 16px;border:1px solid var(--card-border);border-radius:8px;background:var(--surface);color:var(--ink);cursor:pointer;font:600 12px var(--font)">体检</button>'+
+      '<button id="setAttachClean" style="padding:8px 16px;border:1px solid var(--danger);border-radius:8px;background:var(--danger-soft);color:var(--danger);cursor:pointer;font:600 12px var(--font)">清理未引用</button></div>'+
+      '<div style="font-size:11px;color:var(--ink-faint);margin-top:4px">多次导入同一批材料会留下无引用的副本。体检只统计，清理需确认；只删除没有被任何项目引用的附件。</div></div>'+
       '<div style="margin-bottom:20px"><div style="font-size:12px;color:var(--ink-dim);margin-bottom:6px">清理</div>'+
       '<button id="setClearCache" style="padding:8px 16px;border:1px solid var(--danger);border-radius:8px;background:var(--danger-soft);color:var(--danger);cursor:pointer;font:600 12px var(--font)">清除预览缓存</button>'+
       '<div style="font-size:11px;color:var(--ink-faint);margin-top:4px">清理文件预览的临时缓存，不影响数据</div></div>';
@@ -1619,6 +1673,82 @@ function renderSettingsContent(catId,content){
     /* I5-fix: 清缓存改为真清 previewCache Map——此前删的 pv_* localStorage 键全代码无人写入，假成功 */
     var cc=content.querySelector("#setClearCache");if(cc)cc.onclick=function(){
       try{clearPreviewCache();toast("预览缓存已清除");}catch(e){toast("清除失败");}
+    };
+    /* L5: 材料库目录 — 显示/更改/打开/重新同步 */
+    if(matReady){
+      var refreshMatStats=async function(){
+        var box=content.querySelector("#matStats");if(!box)return;
+        var r=await L1Material.stats();
+        if(!box.isConnected)return;
+        box.textContent=(r&&r.ok)?(r.exists?("当前占用 "+r.files+" 个文件 · "+formatBytes7(r.bytes)+" · "+r.projects.length+" 个项目目录"):"目录尚未创建，导入第一份材料时自动建立"):
+          "无法读取材料库："+((r&&r.error)||"未知错误");
+      };
+      var mp=content.querySelector("#matPath");if(mp)mp.textContent=L1Material.rootSync();
+      /* 首次打开设置时默认目录尚未解析过，异步补一次真实路径 */
+      L1Material.rootPath().then(function(p){var el=content.querySelector("#matPath");if(el&&p)el.textContent=p;}).catch(function(){});
+      var mc=content.querySelector("#matChoose");
+      if(mc)mc.onclick=async function(){
+        /* M1-fix: 包一层 try/catch。这里是 async 事件处理器，内部任何同步抛错
+           （哪怕只是 bridge 上少一个方法）都会变成一个没人接的 Promise 拒绝，
+           界面上就是"点了毫无反应"。宁可弹一句人话，也不要静默失败。 */
+        try{
+          var picked=await L1Material.chooseRoot();
+          if(!picked)return;
+          var sync=await L1Material.mirrorProject(curProject());
+          showSettings();toast("材料库已切换"+(sync.count?"；已同步 "+sync.count+" 份材料":""));
+        }catch(e){toast("更改材料库目录失败："+((e&&e.message)||e));}
+      };
+      var mo=content.querySelector("#matOpen");if(mo)mo.onclick=function(){L1Material.openDir(curProject());};
+      var ms=content.querySelector("#matSync");
+      if(ms)ms.onclick=async function(){
+        ms.disabled=true;ms.textContent="同步中…";
+        var r=await L1Material.mirrorProject(curProject());
+        toast("已同步 "+r.count+" 份材料"+(r.failed?"；"+r.failed+" 份失败":""));
+        showSettings();
+      };
+      var mr=content.querySelector("#matReset");if(mr)mr.onclick=async function(){
+        L1Material.resetRoot();var p=await L1Material.rootPath();
+        showSettings();toast("已恢复默认材料库目录"+(p?"："+p:""));
+      };
+      var mi=content.querySelector("#matImport");
+      if(mi)mi.onclick=async function(){
+        mi.disabled=true;mi.textContent="导入中…";
+        await L1Material.pickImport();
+        showSettings();
+      };
+      refreshMatStats();
+    }
+    /* L5: 附件存储体检与清理 — 先只读统计，删除需二次确认 */
+    var attachBox=content.querySelector("#attachStats");
+    var scanAttach=async function(dryRun){
+      var r=await L1Material.gcAttachments(true);
+      if(!r.ok)return r;
+      if(!dryRun)r=await L1Material.gcAttachments(false);
+      return r;
+    };
+    var paintAttach=function(r){
+      if(!attachBox)return;
+      if(!r||!r.ok){attachBox.textContent="无法读取附件存储："+((r&&r.error)||"未知错误");return;}
+      attachBox.textContent="附件 "+r.total+" 份 · 被项目引用 "+r.referenced+" 份 · 未引用 "+r.orphans+" 份（"+formatBytes7(r.bytes)+"）"+(r.removed?(" · 本次已清理 "+r.removed+" 份"):"");
+    };
+    if(attachBox)(async function(){paintAttach(await scanAttach(true));})();
+    var aScan=content.querySelector("#setAttachScan");
+    if(aScan)aScan.onclick=async function(){paintAttach(await scanAttach(true));};
+    var aClean=content.querySelector("#setAttachClean");
+    if(aClean)aClean.onclick=async function(){
+      var r=await L1Material.gcAttachments(true);
+      if(!r.ok){toast("无法读取附件存储："+r.error);return;}
+      if(!r.orphans){toast("没有需要清理的未引用附件");return;}
+      showModal("清理未引用附件",
+        '<p>将删除 <strong>'+r.orphans+'</strong> 份没有被任何项目引用的附件，约释放 '+formatBytes7(r.bytes)+'。</p>'+
+        '<p style="color:var(--ink-dim)">当前项目与画布中的材料不受影响；此操作不可撤销。</p>',
+        [{label:"取消"},
+         {label:"确认清理",primary:true,onClick:async function(){
+           var done=await L1Material.gcAttachments(false);
+           toast(done.ok?"已清理 "+done.removed+" 份未引用附件":"清理失败："+done.error);
+           showSettings();     /* 重开设置面板刷新统计 */
+           return false;       /* 阻止 hideModal 关掉刚重开的面板 */
+         }}]);
     };
   }
   else if(catId==="appearance"){

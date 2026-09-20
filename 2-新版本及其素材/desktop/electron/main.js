@@ -174,7 +174,11 @@ function createWindow() {
     minHeight: 600,
     title: "织见 · 思维关系板",
     icon: path.join(__dirname, "icon.png"),
-    backgroundColor: "#ffffff",
+    /* 窗口底色必须与 splash 的底色同值：页面首帧渲染之前，屏幕上显示的就是这个颜色。
+       原先写死 #ffffff，暗色模式下启动会先闪一帧白，再等渲染层的 applyTheme() 把
+       splash 变暗——这就是"启动闪白"的第一个来源。
+       #111118 / #f0f2f5 分别取自 styles.css 里 #splashScreen 的暗色/亮色背景。 */
+    backgroundColor: nativeTheme.shouldUseDarkColors ? "#111118" : "#f0f2f5",
     frame: false,
     webPreferences: {
       preload: path.join(__dirname, "preload.js"),
@@ -323,16 +327,41 @@ ipcMain.handle("get-open-file", () => {
   return p;
 });
 
-// 选择文件夹对话框
-ipcMain.handle("select-directory", async () => {
-  if (!win) return null;
-  const result = await dialog.showOpenDialog(win, {
-    properties: ["openDirectory", "createDirectory"],
-    title: "选择织见数据存储位置",
-  });
-  if (result.canceled) return null;
-  return result.filePaths[0];
+// M1.4: 旧版 .doc（OLE2 二进制）文本抽取。
+// 浏览器端只有 docx-preview（只认 ZIP/OOXML），.doc 必须自己解：
+// OLE2 复合文档 → FIB → piece table → 正文，再叠 CHPX/PAPX 拿到粗体/字号/样式。
+// 这段代码依赖 Node 的 Buffer，所以放在主进程跑，渲染层只拿结构化结果。
+ipcMain.handle("doc-extract", async (event, data) => {
+  if (!data || !data.bytes) return { ok: false, error: "没有收到文件内容" };
+  try {
+    const docx = require("./doc-extract");
+    const buf = Buffer.from(data.bytes);
+    const t0 = Date.now();
+    const rich = docx.extractDocRich(buf);
+    return {
+      ok: true,
+      ms: Date.now() - t0,
+      bodySize: rich.bodySize,
+      chars: rich.chars,
+      blocks: rich.blocks.map((b) => ({
+        text: b.text,
+        heading: b.heading | 0,
+        jc: b.jc | 0,
+        indent: b.indent | 0,
+        /* 表格行：cells 非空即视为表格的一行（按 0x07 单元格标记切分） */
+        cells: b.isTableRow ? b.cells : null,
+        runs: b.runs.map((r) => ({ text: r.text, b: r.bold ? 1 : 0, i: r.italic ? 1 : 0, s: r.size || 0 })),
+      })),
+    };
+  } catch (e) {
+    console.error("doc-extract failed:", e);
+    return { ok: false, error: String((e && e.message) || e) };
+  }
 });
+
+// 选择文件夹对话框
+// L5: select-directory 已删除——零调用方（原「织见数据存储位置」死设置的残留），
+//     目录选择统一走 material-library-choose
 
 // 检查是否在桌面环境
 // I5-fix: is-desktop / get-user-data-path / get-documents-path / is-fullscreen / save-to-file 均为无调用方的死通道，已删除
@@ -347,6 +376,235 @@ function safeJoin(root, sub) {
   }
   return target;
 }
+
+/* ============================================================
+   L5: 材料库——导入材料的本地落盘镜像
+   浏览器数据库（IndexedDB）仍是在用的数据源；材料库是同一份内容
+   在磁盘上的可查找副本，目录结构为 <根目录>/<项目名>/<文件名>。
+   项目删除只解除引用，不删磁盘文件；只有用户显式清理时才删除。
+============================================================ */
+const MATERIAL_LIBRARY_DIRNAME = "织见材料库";
+const MATERIAL_MAX_BYTES = 300 * 1024 * 1024;   /* 单个材料上限 300MB */
+const MATERIAL_MAX_BATCH = 60;                  /* 单次读取文件数上限 */
+
+function defaultMaterialLibrary() {
+  return path.join(app.getPath("documents"), MATERIAL_LIBRARY_DIRNAME);
+}
+function materialRoot(input) {
+  var root = typeof input === "string" && input.trim() ? input.trim() : defaultMaterialLibrary();
+  return path.resolve(root);
+}
+/* Windows 文件名非法字符统一替换，避免写出用户打不开的文件 */
+function safeSegment(name, fallback) {
+  var s = String(name == null ? "" : name).replace(/[\\/:*?"<>|\u0000-\u001f]/g, "_").replace(/[\s.]+$/, "").trim();
+  if (!s) s = fallback;
+  if (s.length > 96) {
+    var ext = path.extname(s).slice(0, 16);
+    s = s.slice(0, 96 - ext.length) + ext;
+  }
+  return s;
+}
+function ensureDir(dir) {
+  fs.mkdirSync(dir, { recursive: true });
+  return dir;
+}
+/* 同名去重：同尺寸视为同一份材料直接复用；否则追加 (2)(3)… */
+function resolveMaterialPath(dir, baseName, size) {
+  var ext = path.extname(baseName);
+  var stem = baseName.slice(0, baseName.length - ext.length);
+  for (var n = 1; n <= 99; n++) {
+    var candidate = path.join(dir, n === 1 ? baseName : stem + " (" + n + ")" + ext);
+    var stat = null;
+    try { stat = fs.statSync(candidate); } catch (e) { return { path: candidate, reused: false }; }
+    if (stat && stat.isFile() && Number(size) > 0 && stat.size === Number(size)) return { path: candidate, reused: true };
+  }
+  return { path: path.join(dir, stem + " (" + Date.now() + ")" + ext), reused: false };
+}
+function materialTarget(root, projectName, fileName) {
+  var dir = safeJoin(materialRoot(root), safeSegment(projectName, "未命名项目"));
+  return { dir: dir, name: safeSegment(fileName, "材料") };
+}
+function walkMaterials(dir, depth, budget) {
+  var out = { files: 0, bytes: 0, projects: [] };
+  var entries;
+  try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch (e) { return out; }
+  for (var i = 0; i < entries.length; i++) {
+    var entry = entries[i];
+    var full = path.join(dir, entry.name);
+    if (entry.isDirectory()) {
+      if (depth >= 4) continue;
+      var sub = walkMaterials(full, depth + 1, budget);
+      out.files += sub.files; out.bytes += sub.bytes;
+      if (depth === 0) out.projects.push({ name: entry.name, files: sub.files, bytes: sub.bytes });
+    } else if (entry.isFile()) {
+      var stat = null;
+      try { stat = fs.statSync(full); } catch (e) { continue; }
+      if (!stat) continue;
+      out.files++; out.bytes += stat.size;
+      budget.left--; if (budget.left <= 0) return out;
+    }
+  }
+  return out;
+}
+function materialBytesToBuffer(bytes) {
+  if (bytes == null) return null;
+  if (Buffer.isBuffer(bytes)) return bytes;
+  if (bytes instanceof ArrayBuffer) return Buffer.from(bytes);
+  if (ArrayBuffer.isView(bytes)) return Buffer.from(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  if (Array.isArray(bytes)) return Buffer.from(bytes);
+  return null;
+}
+function mimeOfName(name) {
+  var ext = path.extname(String(name || "")).toLowerCase();
+  var table = { ".pdf": "application/pdf", ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
+    ".gif": "image/gif", ".webp": "image/webp", ".svg": "image/svg+xml", ".bmp": "image/bmp",
+    ".txt": "text/plain", ".md": "text/markdown", ".csv": "text/csv", ".json": "application/json",
+    ".doc": "application/msword", ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    ".xls": "application/vnd.ms-excel", ".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    ".ppt": "application/vnd.ms-powerpoint", ".pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation" };
+  return table[ext] || "application/octet-stream";
+}
+
+/* 材料库根目录默认值 */
+ipcMain.handle("material-library-default", () => ({ ok: true, path: defaultMaterialLibrary() }));
+
+/* 选择材料库根目录 */
+ipcMain.handle("material-library-choose", async () => {
+  if (!win) return { ok: false, error: "窗口不可用" };
+  const result = await dialog.showOpenDialog(win, {
+    properties: ["openDirectory", "createDirectory"],
+    title: "选择材料库目录",
+    defaultPath: defaultMaterialLibrary(),
+  });
+  if (result.canceled || !result.filePaths.length) return { ok: false, canceled: true };
+  return { ok: true, path: result.filePaths[0] };
+});
+
+/* 在资源管理器中打开材料库（可按项目名定位子目录） */
+ipcMain.handle("material-library-open", async (event, data) => {
+  try {
+    var dir = materialRoot(data && data.root);
+    if (data && data.projectName) dir = materialTarget(data.root, data.projectName, "").dir;
+    ensureDir(dir);
+    const error = await shell.openPath(dir);
+    if (error) return { ok: false, error: error };
+    return { ok: true, path: dir };
+  } catch (e) { return { ok: false, error: e.message }; }
+});
+
+/* 定位单个材料文件（不存在则退化为打开目录） */
+ipcMain.handle("material-library-reveal", async (event, data) => {
+  try {
+    if (!data || !data.fileName) return { ok: false, error: "缺少文件名" };
+    var target = materialTarget(data.root, data.projectName, data.fileName);
+    var full = safeJoin(target.dir, target.name);
+    if (fs.existsSync(full)) { shell.showItemInFolder(full); return { ok: true, path: full }; }
+    return await openMaterialDir(data.root, data.projectName);
+  } catch (e) { return { ok: false, error: e.message }; }
+});
+async function openMaterialDir(root, projectName) {
+  var dir = projectName ? materialTarget(root, projectName, "").dir : materialRoot(root);
+  ensureDir(dir);
+  const error = await shell.openPath(dir);
+  return error ? { ok: false, error: error } : { ok: true, path: dir, fallback: true };
+}
+
+/* 写入一份材料（导入时同步落盘） */
+ipcMain.handle("material-library-write", (event, data) => {
+  try {
+    if (!data || !data.fileName) return { ok: false, error: "缺少文件名" };
+    var buffer = materialBytesToBuffer(data.bytes);
+    if (!buffer) return { ok: false, error: "缺少文件内容" };
+    var target = materialTarget(data.root, data.projectName, data.fileName);
+    ensureDir(target.dir);
+    var resolved = resolveMaterialPath(target.dir, target.name, buffer.length);
+    if (!resolved.reused) fs.writeFileSync(resolved.path, buffer);
+    return { ok: true, path: resolved.path, name: path.basename(resolved.path), reused: resolved.reused, bytes: buffer.length };
+  } catch (e) { return { ok: false, error: e.message }; }
+});
+
+/* 材料库占用统计 */
+ipcMain.handle("material-library-stats", (event, data) => {
+  try {
+    var root = materialRoot(data && data.root);
+    const budget = { left: 20000 };
+    var stats = fs.existsSync(root) ? walkMaterials(root, 0, budget) : { files: 0, bytes: 0, projects: [] };
+    return { ok: true, root: root, exists: fs.existsSync(root), files: stats.files, bytes: stats.bytes, projects: stats.projects.slice(0, 200) };
+  } catch (e) { return { ok: false, error: e.message }; }
+});
+
+/* 删除材料库中的单个文件（仅限材料库根目录内，且仅由用户显式触发） */
+ipcMain.handle("material-library-delete", (event, data) => {
+  try {
+    if (!data || !data.fileName) return { ok: false, error: "缺少文件名" };
+    var target = materialTarget(data.root, data.projectName, data.fileName);
+    var full = safeJoin(target.dir, target.name);
+    if (!fs.existsSync(full)) return { ok: false, error: "文件不存在" };
+    fs.unlinkSync(full);
+    return { ok: true, path: full };
+  } catch (e) { return { ok: false, error: e.message }; }
+});
+
+/* 多选文件对话框——给「从磁盘导入材料」用 */
+ipcMain.handle("select-material-files", async () => {
+  if (!win) return { ok: false, error: "窗口不可用" };
+  const result = await dialog.showOpenDialog(win, {
+    properties: ["openFile", "multiSelections"],
+    title: "选择要导入的材料",
+  });
+  if (result.canceled || !result.filePaths.length) return { ok: false, canceled: true, paths: [] };
+  const paths = [];
+  for (const filePath of result.filePaths.slice(0, MATERIAL_MAX_BATCH * 4)) {
+    var stat = null;
+    try { stat = fs.statSync(filePath); } catch (e) { continue; }
+    if (!stat || !stat.isFile()) continue;
+    paths.push({ path: filePath, name: path.basename(filePath), size: stat.size, mime: mimeOfName(filePath) });
+  }
+  return { ok: true, paths };
+});
+
+/* 按路径读取文件内容——AI/渲染层「给路径即上传」的唯一入口 */
+ipcMain.handle("read-material-files", (event, data) => {
+  try {
+    var list = data && Array.isArray(data.paths) ? data.paths : [];
+    if (!list.length) return { ok: false, error: "未提供文件路径" };
+    if (list.length > MATERIAL_MAX_BATCH) return { ok: false, error: "单次最多读取 " + MATERIAL_MAX_BATCH + " 个文件" };
+    var files = [], errors = [];
+    for (var i = 0; i < list.length; i++) {
+      var filePath = typeof list[i] === "string" ? list[i] : (list[i] && list[i].path);
+      if (!filePath || typeof filePath !== "string") { errors.push({ path: String(filePath), error: "路径无效" }); continue; }
+      var resolved = path.resolve(filePath);
+      try {
+        var stat = fs.statSync(resolved);
+        if (!stat.isFile()) throw new Error("不是文件");
+        if (stat.size > MATERIAL_MAX_BYTES) throw new Error("超过单个材料上限 " + Math.round(MATERIAL_MAX_BYTES / 1024 / 1024) + "MB");
+        var buffer = fs.readFileSync(resolved);
+        files.push({ path: resolved, name: path.basename(resolved), size: stat.size, mime: mimeOfName(resolved), bytes: new Uint8Array(buffer) });
+      } catch (e) { errors.push({ path: resolved, error: e.message }); }
+    }
+    return { ok: true, files: files, errors: errors };
+  } catch (e) { return { ok: false, error: e.message }; }
+});
+
+/* 材料卡「在文件夹中显示」——优先用本地落盘文件，其次临时目录 */
+ipcMain.handle("reveal-blob", async (event, data) => {
+  try {
+    if (!data) return { ok: false, error: "缺少参数" };
+    if (data.fileName && data.projectName !== undefined) {
+      var probe = materialTarget(data.root, data.projectName, data.fileName);
+      var existing = safeJoin(probe.dir, probe.name);
+      if (fs.existsSync(existing)) { shell.showItemInFolder(existing); return { ok: true, path: existing }; }
+    }
+    if (!data.bytes) return { ok: false, error: "材料未落盘且无内容" };
+    var buffer = materialBytesToBuffer(data.bytes);
+    if (!buffer) return { ok: false, error: "材料内容无效" };
+    var ext = path.extname(String(data.fileName || ""));
+    var tmp = path.join(app.getPath("temp"), "织见材料-" + Date.now() + ext);
+    fs.writeFileSync(tmp, buffer);
+    shell.showItemInFolder(tmp);
+    return { ok: true, path: tmp, temporary: true };
+  } catch (e) { return { ok: false, error: e.message }; }
+});
 
 require("./package-ipc").install({ipcMain,dialog,app,getWindow:()=>win});
 require("./package-stream").install({ipcMain,dialog,app,getWindow:()=>win});
