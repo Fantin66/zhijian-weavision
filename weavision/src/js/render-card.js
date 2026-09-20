@@ -115,8 +115,27 @@ function drawNote(it,cc){
       const wrapped=wrapLines(c,token.text,w-20);for(const line of wrapped)lines.push({line,scale,weight,quote:token.kind==="quote"});
     }
     const maxL=Math.max(1,Math.floor((coreH-14)/lh));
-    lines.slice(0,maxL).forEach((row,i)=>{c.font=row.weight+" "+Math.round(base*row.scale)+"px "+fam;c.fillText(row.line,x+10,y+12+i*lh);if(style.underline){const tw=c.measureText(row.line).width;c.fillRect(x+10,y+12+i*lh+base*1.16,tw,Math.max(1,base*.07));}});
-    if(lines.length>maxL){c.font="600 "+base+"px "+fam;c.fillText("…",x+10,y+12+(maxL-1)*lh+12);}
+    /* 便签非编辑态滚动：内容超出可视高度时按 it.scrollY 偏移显示窗口，
+       由交互层（interaction.js 的 wheel）更新 scrollY 并重绘，
+       这样不必双击进入编辑态也能上下滚动看全内容。 */
+    const total=lines.length;
+    const scrollMax=Math.max(0,total-maxL);
+    it._scrollMax=scrollMax;it._maxL=maxL;
+    const sy=clamp(Math.round(it.scrollY||0),0,scrollMax);
+    it.scrollY=sy;
+    lines.slice(sy,sy+maxL).forEach((row,i)=>{c.font=row.weight+" "+Math.round(base*row.scale)+"px "+fam;c.fillText(row.line,x+10,y+12+i*lh);if(style.underline){const tw=c.measureText(row.line).width;c.fillRect(x+10,y+12+i*lh+base*1.16,tw,Math.max(1,base*.07));}});
+    /* 可滚动时：右侧细滚动条（替代旧的截断省略号），提示下方还有内容 */
+    if(scrollMax>0){
+      const trackY=y+8,trackH=Math.max(12,coreH-16);
+      const thumbH=Math.max(16,trackH*maxL/total);
+      const thumbY=trackY+(trackH-thumbH)*(sy/scrollMax);
+      c.save();
+      c.fillStyle=dc("rgba(29,29,31,.14)","rgba(255,255,255,.2)");
+      roundRectPath(c,x+w-5,trackY,2.5,trackH,1.25);c.fill();
+      c.fillStyle=dc("rgba(29,29,31,.42)","rgba(255,255,255,.5)");
+      roundRectPath(c,x+w-5,thumbY,2.5,thumbH,1.25);c.fill();
+      c.restore();
+    }
   }
   /* （已移除：关联到节点时便签右上角的橙色角标） */
   drawDetail(it,{x,y,w,h});

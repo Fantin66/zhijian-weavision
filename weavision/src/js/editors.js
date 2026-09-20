@@ -1648,11 +1648,22 @@ function distToSegment(px,py,a,b){
 }
 function hitHandle(sel,sx,sy){
   const b=itemBounds(sel);if(!b) return null;
+  /* 命中判定放宽（用户反馈：原 9px 圆形判定太严，鼠标必须精确落在角点/边中点的
+     那一条线上才触发，很难用）。改为"一块区域"判定——
+     角手柄=方形区域、边手柄=带状区域，向元素内收进一段距离仍可命中。 */
+  const CORNER=20;  /* 角手柄：方形半宽（屏幕像素） */
+  const BAND=14;    /* 边手柄：法向厚度（往元素内收一段） */
+  const EXT=22;     /* 边手柄：切向延伸半长（沿边方向放宽） */
+  let best=null,bestD=Infinity;
   for(const h of HANDLES){
     const p=w2s(handlePos(b,h).x,handlePos(b,h).y);
-    if(Math.hypot(sx-p.x,sy-p.y)<=9) return h;
+    const dx=sx-p.x,dy=sy-p.y;
+    const ok=(h==="n"||h==="s")?(Math.abs(dx)<=EXT&&Math.abs(dy)<=BAND)
+            :(h==="e"||h==="w")?(Math.abs(dx)<=BAND&&Math.abs(dy)<=EXT)
+            :(Math.abs(dx)<=CORNER&&Math.abs(dy)<=CORNER);
+    if(ok){const d=Math.hypot(dx,dy);if(d<bestD){bestD=d;best=h;}}
   }
-  return null;
+  return best;
 }
 
 /* ============================================================

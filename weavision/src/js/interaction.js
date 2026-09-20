@@ -85,6 +85,19 @@ board.addEventListener("wheel",e=>{
   state._camInteracting=true;clearTimeout(_camTimer);
   _camTimer=setTimeout(function(){state._camInteracting=false;requestRender();},80);
   const bxy=boardXY(e.clientX,e.clientY);
+  /* 便签非编辑态滚动：鼠标悬停在内容已溢出的便签上时，滚轮用于滚动
+     该便签内部文本（it.scrollY），而不是缩放/平移画布。
+     使非编辑状态也能上下滚动查看全部内容（此前只有双击进编辑态才能滚）。 */
+  {
+    const wp=s2w(bxy.x,bxy.y);
+    const hi=hitTest(wp.x,wp.y);
+    if(hi&&hi.type==="note"&&(hi._scrollMax||0)>0){
+      const dir=e.deltaY>0?1:-1;
+      const ns=clamp(Math.round((hi.scrollY||0)+dir),0,hi._scrollMax);
+      if(ns!==hi.scrollY){hi.scrollY=ns;requestRender();}
+      return;
+    }
+  }
   /* Windows Precision Touchpad 会送出从很小到 100+ 的连续像素值，
      不能再用 deltaY<40 判断。只让 ctrl+wheel（捏合）和离散鼠标滚轮缩放；
      双指纵/横滑一律平移画布。 */
