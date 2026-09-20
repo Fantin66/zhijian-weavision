@@ -169,17 +169,26 @@ function installFantinSkill() {
 /* K9: 常驻系统托盘图标 —— 窗口被切到别的桌面/最小化时，也能一眼看出应用仍在运行。
    右键菜单：显示主窗口 / 设置 / 退出织见；双击图标回到主窗口。 */
 let tray = null;
-/* 托盘图标：取应用图标(icon.png)中心的"叠合元素"，按目标尺寸各自光栅化为 tray-16/32.png
-   —— 每个尺寸独立渲染，避免大图硬缩到 16px 发糊。 */
+/* 托盘图标：取拟物风格的应用图标（fantin-icon）预渲染好的各档 PNG，
+   随系统 DPI 命中 16 / 20 / 24 / 32 —— 不在运行时缩放，避免发糊。 */
 function trayIconImage() {
   const dir = app.isPackaged ? path.join(process.resourcesPath, "icons") : path.join(__dirname, "icons");
+  const reps = [
+    { scaleFactor: 1.0, size: 16 },
+    { scaleFactor: 1.25, size: 20 },
+    { scaleFactor: 1.5, size: 24 },
+    { scaleFactor: 2.0, size: 32 }
+  ];
   try {
-    const p16 = path.join(dir, "tray-16.png"), p32 = path.join(dir, "tray-32.png");
-    if (!fs.existsSync(p16) || !fs.existsSync(p32)) return null;
     const img = nativeImage.createEmpty();
-    img.addRepresentation({ scaleFactor: 1.0, width: 16, height: 16, buffer: fs.readFileSync(p16) });
-    img.addRepresentation({ scaleFactor: 2.0, width: 32, height: 32, buffer: fs.readFileSync(p32) });
-    return img;
+    let added = 0;
+    for (const r of reps) {
+      const p = path.join(dir, "tray-" + r.size + ".png");
+      if (!fs.existsSync(p)) continue;
+      img.addRepresentation({ scaleFactor: r.scaleFactor, width: r.size, height: r.size, buffer: fs.readFileSync(p) });
+      added++;
+    }
+    return added ? img : null;
   } catch (e) { return null; }
 }
 function showMainWindow() {
