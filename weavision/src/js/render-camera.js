@@ -125,8 +125,8 @@ function gazeAtSelection(){
   setTimeout(function(){zoomPctEl.textContent="100%";},300);
 }
 function toggleFocus(){
-  /* 超聚焦态下按 F：只退回聚焦态（还原重排，保留聚焦与视角） */
-  if(state.focusMode&&state.focusMode.super){revertSuperLayout();state.focusMode.super=false;render();saveStateDebounced();toast("已回到聚焦");return;}
+  /* 超聚焦态下按 F：退回聚焦态（带回位动画） */
+  if(state.focusMode&&state.focusMode.super){exitSuperFocus();return;}
   if(state.focusMode){exitFocus();return;}
   const s=selectedItem();
   if(!s||s.type==="link"||s.type==="mindLink"){toast("请先选中一个内容元素");return;}
@@ -192,11 +192,12 @@ function exitFocus(){
 
 /* ============================================================
    超聚焦（Super Focus）
-   —— 在聚焦基础上，把「焦点 + 一级邻域」就地重排为清晰易读的布局；
-      再按 Shift+F 退出并原样还原（作用于真实坐标 + 快照恢复）。
-   第一性原则：清晰、好看、易读。
-   · 纯节点且父子关系清晰 → 以焦点为中心的二分（上游一侧 / 下游一侧）
-   · 混合或交叉关系       → 以焦点为中心的环形（确定性，避免交叉）
+   —— 聚焦态下点击 HUD 的「进入超聚焦」按钮触发（不占用快捷键，避免与搜索等冲突）。
+   设计要点（按用户要求）：
+   1) 只把过远/过散的一级邻域「收拢拉近」，尽量保持每个元素原有的方位与相对关系，
+      不重排成另一种布局（它只是"把散开的收回来"，不是"重新排一遍"）；
+   2) 收拢后再做去重叠，避免附件之间互相遮盖；
+   3) 进入/退出都有位移动画；进入时中心高亮、四周压暗，形成明显的"超聚焦"观感。
 ============================================================ */
 function _superNeighbors(centerId){
   const rel=getRelated(centerId);
@@ -209,94 +210,113 @@ function _superNeighbors(centerId){
   }
   return list;
 }
-/* 纵向排一列（二分布局用）；toRight=true 表示该列在焦点右侧，按左边缘对齐 edgeX */
-function _superColumn(list,edgeX,cy,toRight){
-  if(!list.length)return;
-  const gap=36;
-  const hs=list.map(n=>itemBounds(n).h);
-  const total=hs.reduce((a,b)=>a+b,0)+gap*(list.length-1);
-  let y=cy-total/2;
-  list.forEach((n,i)=>{
-    const nb=itemBounds(n);
-    n.x=Math.round(toRight?edgeX:edgeX-nb.w);
-    n.y=Math.round(y);
-    y+=hs[i]+gap;
-  });
+/* 去重叠：以中心为锚，迭代把相互遮盖的盒子推开（lock 的盒子不动） */
+function _separateBoxes(boxes){
+  const pad=26;
+  for(let iter=0;iter<60;iter++){
+    let moved=false;
+    for(let i=0;i<boxes.length;i++){
+      for(let j=i+1;j<boxes.length;j++){
+        const a=boxes[i],b=boxes[j];
+        const ox=(a.x+a.w/2)-(b.x+b.w/2), oy=(a.y+a.h/2)-(b.y+b.h/2);
+        const px=(a.w+b.w)/2+pad-Math.abs(ox), py=(a.h+b.h)/2+pad-Math.abs(oy);
+        if(px>0&&py>0){
+          moved=true;
+          if(a.lock&&b.lock)continue;
+          if(a.lock){ b.x+=(ox>=0?-1:1)*px; b.y+=(oy>=0?-1:1)*py; continue; }
+          if(b.lock){ a.x+=(ox>=0?1:-1)*px; a.y+=(oy>=0?1:-1)*py; continue; }
+          if(px<py){ const s=(ox>=0?1:-1)*px/2; a.x+=s; b.x-=s; }
+          else{ const s=(oy>=0?1:-1)*py/2; a.y+=s; b.y-=s; }
+        }
+      }
+    }
+    if(!moved)break;
+  }
 }
-/* 视角适配：把「焦点 + 邻域」整体居中并缩放到可见 */
-function _superFitCamera(center,others){
+function _superBoxOf(center,others,moves){
   let minX=1e9,minY=1e9,maxX=-1e9,maxY=-1e9;
-  for(const n of [center,...others]){const b=itemBounds(n);if(!b)continue;minX=Math.min(minX,b.x);minY=Math.min(minY,b.y);maxX=Math.max(maxX,b.x+b.w);maxY=Math.max(maxY,b.y+b.h);}
-  if(minX>maxX)return;
-  const pad=90,w=maxX-minX+pad*2,h=maxY-minY+pad*2;
-  const nz=clamp(Math.min(state.camera.zoom,Math.min(W/w,H/h)),0.3,1.4);
-  animateCamera((minX+maxX)/2-W/2/nz,(minY+maxY)/2-H/2/nz,nz);
+  const cb=itemBounds(center);
+  minX=Math.min(minX,cb.x);minY=Math.min(minY,cb.y);maxX=Math.max(maxX,cb.x+cb.w);maxY=Math.max(maxY,cb.y+cb.h);
+  others.forEach((n,i)=>{const b=itemBounds(n);const x=moves[i].tx,y=moves[i].ty;minX=Math.min(minX,x);minY=Math.min(minY,y);maxX=Math.max(maxX,x+b.w);maxY=Math.max(maxY,y+b.h);});
+  const pad=70;
+  return {x:minX-pad,y:minY-pad,w:maxX-minX+pad*2,h:maxY-minY+pad*2};
 }
-/* 应用超聚焦重排（首次调用记录快照，供原样还原） */
+function _superFitCamera(){
+  const fm=state.focusMode;if(!fm||!fm.superBox)return;
+  const b=fm.superBox;
+  const nz=clamp(Math.min(state.camera.zoom,Math.min(W/(b.w+80),H/(b.h+80))),0.3,1.6);
+  animateCamera(b.x+b.w/2-W/2/nz,b.y+b.h/2-H/2/nz,nz);
+}
+let _superAnimGen=0;
+function _animateSuper(moves,dur,done){
+  if(!moves||!moves.length){if(done)done();return;}
+  const gen=++_superAnimGen,t0=performance.now();
+  function step(now){
+    if(gen!==_superAnimGen)return;
+    const p=Math.min(1,(now-t0)/dur),e=1-Math.pow(1-p,3);
+    for(const m of moves){m.it.x=m.fx+(m.tx-m.fx)*e;m.it.y=m.fy+(m.ty-m.fy)*e;}
+    render();
+    if(p<1)requestAnimationFrame(step);
+    else{for(const m of moves){m.it.x=m.tx;m.it.y=m.ty;}render();if(done)done();}
+  }
+  requestAnimationFrame(step);
+}
+/* 生成"收拢但保持相对方位"的目标位置 */
+function _superMoves(){
+  const fm=state.focusMode;if(!fm)return null;
+  const center=state.items.find(i=>i.id===fm.id);if(!center)return null;
+  const others=_superNeighbors(fm.id);
+  if(!others.length)return null;
+  const cb=itemBounds(center),cx=cb.x+cb.w/2,cy=cb.y+cb.h/2;
+  const info=others.map(n=>{
+    const b=itemBounds(n);const nx=b.x+b.w/2,ny=b.y+b.h/2;
+    const dx=nx-cx,dy=ny-cy;const d=Math.hypot(dx,dy)||1;
+    return {n,ux:dx/d,uy:dy/d,d,b};
+  });
+  const maxD=Math.max.apply(null,info.map(o=>o.d));
+  const target=clamp(maxD*0.55,240,560);
+  const moves=info.map(o=>{
+    const nd=Math.min(o.d,target);
+    return {it:o.n,fx:o.n.x,fy:o.n.y,tx:cx+o.ux*nd-o.b.w/2,ty:cy+o.uy*nd-o.b.h/2};
+  });
+  const boxes=[{it:center,x:cb.x,y:cb.y,w:cb.w,h:cb.h,lock:true}]
+    .concat(moves.map(m=>({it:m.it,x:m.tx,y:m.ty,w:itemBounds(m.it).w,h:itemBounds(m.it).h})));
+  _separateBoxes(boxes);
+  moves.forEach((m,i)=>{m.tx=Math.round(boxes[i+1].x);m.ty=Math.round(boxes[i+1].y);});
+  return {center,others,moves};
+}
 function applySuperLayout(){
   const fm=state.focusMode;if(!fm)return false;
-  const center=state.items.find(i=>i.id===fm.id);if(!center)return false;
-  const others=_superNeighbors(fm.id);
-  if(!others.length){toast("该元素没有关联内容，无法超聚焦");return false;}
-  if(!fm.layoutBackup){
-    const bak=[];
-    for(const n of [center,...others])bak.push({id:n.id,x:n.x,y:n.y});
-    fm.layoutBackup=bak;
-  }
-  const GAP=56;
-  const cb=itemBounds(center),cx=cb.x+cb.w/2,cy=cb.y+cb.h/2;
-  const allNodes=others.every(n=>n.type==="mindNode");
-  const parentLinked=others.every(n=>n.parentId===fm.id||center.parentId===n.id);
-  if(allNodes&&parentLinked){
-    /* 二分：上游（父）在左，下游（子）在右 */
-    _superColumn(others.filter(n=>center.parentId===n.id),cb.x-GAP,cy,false);
-    _superColumn(others.filter(n=>n.parentId===fm.id),cb.x+cb.w+GAP,cy,true);
-    fm.layoutType="bisect";
-  }else{
-    /* 环形：以焦点为圆心均匀分布（确定性、易读） */
-    const R=Math.max(250,130+others.length*30);
-    const n=others.length;
-    others.forEach((it,i)=>{
-      const ang=-Math.PI/2+i*(2*Math.PI/n);
-      const nb=itemBounds(it);
-      it.x=Math.round(cx+Math.cos(ang)*R-nb.w/2);
-      it.y=Math.round(cy+Math.sin(ang)*R-nb.h/2);
-    });
-    fm.layoutType="ring";
-  }
-  _superFitCamera(center,others);
+  const r=_superMoves();
+  if(!r){toast("该元素没有直接关联内容，无法超聚焦");return false;}
+  if(!fm.layoutBackup){fm.layoutBackup=[r.center].concat(r.others).map(n=>({id:n.id,x:n.x,y:n.y}));}
+  fm.superBox=_superBoxOf(r.center,r.others,r.moves);
+  _superFitCamera();
+  _animateSuper(r.moves,320);
+  fm.layoutType="compact";
   return true;
 }
 /* 还原重排坐标（保留聚焦态本身） */
 function revertSuperLayout(){
   const fm=state.focusMode;if(!fm||!fm.layoutBackup)return;
-  for(const s of fm.layoutBackup){
-    const n=state.items.find(i=>i.id===s.id);
-    if(n){n.x=s.x;n.y=s.y;}
-  }
-  fm.layoutBackup=null;fm.layoutType=null;
+  for(const s of fm.layoutBackup){const n=state.items.find(i=>i.id===s.id);if(n){n.x=s.x;n.y=s.y;}}
+  fm.layoutBackup=null;fm.layoutType=null;fm.superBox=null;
 }
-/* Shift+F：进入 / 退出超聚焦 */
+/* HUD 按钮：进入 / 退出超聚焦（仅聚焦态可用；不占快捷键） */
 function toggleSuperFocus(){
   if(state.focusMode&&state.focusMode.super){exitSuperFocus();return;}
-  const s=selectedItem();
-  const targetId=state.focusMode?state.focusMode.id:(s&&s.id);
-  if(targetId===undefined||targetId===null){toast("请先选中一个内容元素");return;}
-  if(!state.focusMode)enterFocus(targetId);
-  if(!state.focusMode)return;
-  if(applySuperLayout()){
-    state.focusMode.super=true;
-    render();
-    toast("超聚焦（"+(state.focusMode.layoutType==="bisect"?"二分":"环形")+"重排）· Shift+F 退出 · F 回到聚焦");
-  }
+  if(!state.focusMode){toast("请先按 F 进入聚焦，再点「进入超聚焦」");return;}
+  if(applySuperLayout()){state.focusMode.super=true;render();if(typeof updateFocusHud==="function")updateFocusHud();}
 }
+/* 退出超聚焦 → 回到聚焦态（带回位动画） */
 function exitSuperFocus(){
   if(!state.focusMode||!state.focusMode.super)return;
-  revertSuperLayout();
-  state.focusMode.super=false;
-  /* 用户约定：Shift+F 从超聚焦直接回到非聚焦态 */
-  exitFocus();
-  saveStateDebounced();
+  const fm=state.focusMode;
+  const moves=[];
+  if(fm.layoutBackup)for(const s of fm.layoutBackup){const n=state.items.find(i=>i.id===s.id);if(n)moves.push({it:n,fx:n.x,fy:n.y,tx:s.x,ty:s.y});}
+  fm.super=false;fm.superBox=null;fm.layoutType=null;fm.layoutBackup=null;
+  _animateSuper(moves,280,()=>{saveStateDebounced();if(typeof updateFocusHud==="function")updateFocusHud();});
+  render();
   toast("已退出超聚焦");
 }
 

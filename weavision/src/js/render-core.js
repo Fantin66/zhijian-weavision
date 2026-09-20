@@ -249,6 +249,8 @@ function render(){
       }
     }
   }
+  /* 超聚焦：中心高亮、四周压暗（世界坐标内绘制，自动跟随相机与缩放） */
+  if(state.focusMode&&state.focusMode.super)drawSuperFocusMask();
   ctx.restore();
   ZhijianPerf.mark(perfFrame,"canvas");
   /* 连接点 hover tooltip — DOM 实现（K5-fix: canvas 绘制在 restore 后用世界坐标=位置漂移，
@@ -357,6 +359,26 @@ function syncPvContentZoom(el,pv,z){
   /* 2) 视频/图片：object-fit:contain 随容器等比，无需额外处理 */
 }
 
+/* 超聚焦遮罩：中心方形亮区 + 四周压暗 + 柔光描边（在世界坐标内绘制，自动跟随相机） */
+function drawSuperFocusMask(){
+  const fm=state.focusMode;if(!fm||!fm.superBox)return;
+  const z=state.camera.zoom,b=fm.superBox;
+  const L=state.camera.x,T=state.camera.y,R=state.camera.x+W/z,Bt=state.camera.y+H/z;
+  const x0=Math.max(L,b.x),y0=Math.max(T,b.y),x1=Math.min(R,b.x+b.w),y1=Math.min(Bt,b.y+b.h);
+  if(x1<=x0||y1<=y0)return;
+  ctx.save();
+  ctx.fillStyle=state.dark?"rgba(0,0,0,.55)":"rgba(12,18,32,.46)";
+  if(y0>T)ctx.fillRect(L,T,R-L,y0-T);
+  if(Bt>y1)ctx.fillRect(L,y1,R-L,Bt-y1);
+  if(x0>L)ctx.fillRect(L,y0,x0-L,y1-y0);
+  if(R>x1)ctx.fillRect(x1,y0,R-x1,y1-y0);
+  const pad=8/z;
+  ctx.strokeStyle=state.dark?"rgba(150,180,255,.55)":"rgba(90,130,240,.5)";
+  ctx.lineWidth=2/z;
+  ctx.shadowColor="rgba(90,130,240,.6)";ctx.shadowBlur=28/z;
+  roundRectPath(ctx,x0-pad,y0-pad,x1-x0+pad*2,y1-y0+pad*2,16);ctx.stroke();
+  ctx.restore();
+}
 function updateFocusHud(){
   if(!state.focusMode){focusHud.classList.remove("show");return;}
   const item=state.items.find(i=>i.id===state.focusMode.id);
@@ -364,9 +386,12 @@ function updateFocusHud(){
   const related=getRelated(item.id);
   focusHud.querySelector("strong").textContent=item.text||"未命名元素";
   focusHud.querySelector(".focus-meta").textContent="直接关系 "+Math.max(0,related.size-1)+" 个";
+  const _sfb=focusHud.querySelector("#superFocusBtn");
+  if(_sfb){const _t=state.focusMode.super?"退出超聚焦":"进入超聚焦";if(_sfb.textContent!==_t)_sfb.textContent=_t;}
   focusHud.classList.add("show");
 }
-focusHud.querySelector("button").addEventListener("click",()=>exitFocus());
+focusHud.querySelector("#focusExitBtn").addEventListener("click",()=>exitFocus());
+focusHud.querySelector("#superFocusBtn").addEventListener("click",()=>toggleSuperFocus());
 function drawGrid(z){
   const dark=state.dark;
   const pat=state.bgPattern||"grid";

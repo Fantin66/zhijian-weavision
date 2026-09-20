@@ -658,8 +658,7 @@ document.addEventListener("keydown",e=>{
   if(e.key==="b"&&!e.ctrlKey&&!e.metaKey&&!e.altKey){e.preventDefault();if(state.tool==="marquee"){state.tool="select";board.className="mode-select";renderToolOptions();toast("已退出框选");}else{state.tool="marquee";board.className="mode-marquee";renderToolOptions();toast("框选模式");}return;}
   if(e.key==="g"&&!e.ctrlKey&&!e.metaKey&&!e.altKey){e.preventDefault();gazeAtSelection();return;}
   if(e.key==="y"&&!e.ctrlKey&&!e.metaKey&&!e.altKey){e.preventDefault();fitAll();return;}
-  /* Shift+F：超聚焦（进入 / 退出）；F：聚焦（超聚焦态下按 F 先退回聚焦态） */
-  if(e.shiftKey&&!e.ctrlKey&&!e.metaKey&&!e.altKey&&e.key.toLowerCase()==="f"){e.preventDefault();toggleSuperFocus();return;}
+  /* F：聚焦（超聚焦态下按 F 退回聚焦态）。超聚焦改用聚焦 HUD 上的按钮进入，避免与搜索等快捷键冲突 */
   if(e.key==="f"&&!e.ctrlKey&&!e.metaKey&&!e.altKey){e.preventDefault();toggleFocus();return;}
   /* J 键：跃迁 */
   if(e.key==="j"&&!e.ctrlKey&&!e.metaKey&&!e.altKey){e.preventDefault();openJump();return;}

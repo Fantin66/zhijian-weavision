@@ -1690,6 +1690,8 @@ body.reduced-motion #bg-l1-drift .drift-d{
 #previewLayer,#detailReadLayer{z-index:5}
 #dockBar,#selbar,#ctxMenu{z-index:48}
 #focusHud{z-index:50}
+#focusHud .focus-super-btn{background:var(--accent-soft);border-color:rgba(45,95,211,.3);color:var(--accent);font-weight:650}
+#focusHud .focus-super-btn:hover{background:rgba(45,95,211,.16)}
 
 /* --- L1 漂移色：小色斑 + 大位移 + 亮心渐变，水面光影感 --- */
 #bg-l1-drift{
