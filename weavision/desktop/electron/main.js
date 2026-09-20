@@ -169,13 +169,26 @@ function installFantinSkill() {
 /* K9: 常驻系统托盘图标 —— 窗口被切到别的桌面/最小化时，也能一眼看出应用仍在运行。
    右键菜单：显示主窗口 / 设置 / 退出织见；双击图标回到主窗口。 */
 let tray = null;
-function trayIconPath() {
+/* 托盘图标：选小尺寸、线条简洁的 flat 系列（128px），并同时提供 16@1x / 32@2x 两个表示，
+   避免把 1024+ 的大图硬缩到 16px 而发糊；颜色跟随系统主题。 */
+function trayIconImage() {
   const dir = app.isPackaged ? path.join(process.resourcesPath, "icons") : path.join(__dirname, "icons");
-  const cands = [
-    path.join(dir, "clean-3.png"), path.join(dir, "clean-2.png"), path.join(dir, "clean-1.png"),
-    path.join(dir, "icon.png"), path.join(__dirname, "icon.png")
-  ];
-  for (const p of cands) { try { if (fs.existsSync(p)) return p; } catch (e) {} }
+  const dark = nativeTheme.shouldUseDarkColors;
+  const names = dark
+    ? ["flat-3-dark.png", "flat-2-dark.png", "flat-1-dark.png"]
+    : ["flat-3-light.png", "flat-2-light.png", "flat-1-light.png"];
+  for (const n of names) {
+    const p = path.join(dir, n);
+    try {
+      if (!fs.existsSync(p)) continue;
+      const src = nativeImage.createFromPath(p);
+      if (src.isEmpty()) continue;
+      const img = nativeImage.createEmpty();
+      img.addRepresentation({ scaleFactor: 1.0, width: 16, height: 16, buffer: src.resize({ width: 16, height: 16 }).toPNG() });
+      img.addRepresentation({ scaleFactor: 2.0, width: 32, height: 32, buffer: src.resize({ width: 32, height: 32 }).toPNG() });
+      return img;
+    } catch (e) {}
+  }
   return null;
 }
 function showMainWindow() {
@@ -186,11 +199,8 @@ function showMainWindow() {
 function createTray() {
   if (tray) return;
   try {
-    const ip = trayIconPath();
-    if (!ip) return;
-    let img = nativeImage.createFromPath(ip);
-    if (img.isEmpty()) return;
-    img = img.resize({ width: 16, height: 16 });
+    const img = trayIconImage();
+    if (!img) return;
     tray = new Tray(img);
     tray.setToolTip("织见 Weavision");
     tray.setContextMenu(Menu.buildFromTemplate([

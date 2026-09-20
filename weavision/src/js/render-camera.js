@@ -169,6 +169,8 @@ function enterFocus(id){
 }
 function exitFocus(){
   if(!state.focusMode)return;
+  /* 退出也要有过渡：聚光遮罩以残影淡出（进入有淡入，退出不该瞬间消失） */
+  if(typeof startFocusSpotFade==="function")startFocusSpotFade();
   /* 超聚焦态退出：先还原重排，避免布局残留 */
   if(state.focusMode.super)revertSuperLayout();
   /* 恢复折叠状态与原视角 */
@@ -263,16 +265,17 @@ function _animateSuper(moves,dur,done){
 }
 /* 超聚焦"聚光强度"动画（0→1 收拢加强 / →0 淡出）：驱动 drawFocusSpotlight 的强度与半径 */
 let _superTGen=0;
-function _animateSuperT(target,dur){
-  const fm=state.focusMode;if(!fm)return;
+function _animateSuperT(target,dur,done){
+  const fm=state.focusMode;if(!fm){if(done)done();return;}
   const gen=++_superTGen,t0=performance.now(),from=fm._superT||0;
   function step(now){
     if(gen!==_superTGen)return;
-    const cur=state.focusMode;if(!cur)return;
+    const cur=state.focusMode;
+    if(!cur){if(done)done();return;}
     const p=Math.min(1,(now-t0)/dur),e=1-Math.pow(1-p,3);
     cur._superT=from+(target-from)*e;
     render();
-    if(p<1)requestAnimationFrame(step);else cur._superT=target;
+    if(p<1)requestAnimationFrame(step);else{cur._superT=target;if(done)done();}
   }
   requestAnimationFrame(step);
 }
@@ -323,13 +326,15 @@ function toggleSuperFocus(){
   if(!state.focusMode){toast("请先按 F 进入聚焦，再点「进入超聚焦」");return;}
   if(applySuperLayout()){state.focusMode.super=true;_animateSuperT(1,320);render();if(typeof updateFocusHud==="function")updateFocusHud();}
 }
-/* 退出超聚焦 → 回到聚焦态（带回位动画） */
+/* 退出超聚焦 → 回到聚焦态（位置回程动画 + 聚光由"超聚焦级"平滑退回"聚焦级"） */
 function exitSuperFocus(){
   if(!state.focusMode||!state.focusMode.super)return;
   const fm=state.focusMode;
   const moves=[];
   if(fm.layoutBackup)for(const s of fm.layoutBackup){const n=state.items.find(i=>i.id===s.id);if(n)moves.push({it:n,fx:n.x,fy:n.y,tx:s.x,ty:s.y});}
-  fm.super=false;fm.superBox=null;fm.layoutType=null;fm.layoutBackup=null;fm._superT=0;
+  fm.super=false;fm.layoutBackup=null;
+  /* 注意：superBox 要留到强度动画结束再清，否则聚光中心会瞬移 */
+  _animateSuperT(0,280,()=>{fm.superBox=null;fm.layoutType=null;if(typeof updateFocusHud==="function")updateFocusHud();render();});
   _animateSuper(moves,280,()=>{saveStateDebounced();if(typeof updateFocusHud==="function")updateFocusHud();});
   render();
   toast("已退出超聚焦");

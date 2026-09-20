@@ -29,6 +29,9 @@ function render(){
     state.focusMode._relSet=focusPrimary; /* 供命中/框选/悬停过滤：被隐藏的元素不响应鼠标 */
   }
   ZhijianPerf.mark(perfFrame,"prepare");
+  /* 聚焦/超聚焦的"舞台灯"：铺在元素之下（背景层），只压暗四周、凸显聚焦内容——
+     此前画在元素之上，会把元素本身也一起压暗，逻辑反了 */
+  if(state.focusMode||(state._spotFade&&state._spotFade.t>0.01))drawFocusSpotlight();
   drawMindConnections(focusPrimary);
   drawLinks(focusPrimary);
   ZhijianPerf.mark(perfFrame,"relations");
@@ -250,8 +253,6 @@ function render(){
       }
     }
   }
-  /* 聚焦/超聚焦的舞台灯光效：中心透亮、四周压暗（世界坐标内绘制，随相机自适应） */
-  if(state.focusMode)drawFocusSpotlight();
   ctx.restore();
   ZhijianPerf.mark(perfFrame,"canvas");
   /* 连接点 hover tooltip — DOM 实现（K5-fix: canvas 绘制在 restore 后用世界坐标=位置漂移，
@@ -360,34 +361,59 @@ function syncPvContentZoom(el,pv,z){
   /* 2) 视频/图片：object-fit:contain 随容器等比，无需额外处理 */
 }
 
-/* 聚焦 / 超聚焦的"舞台灯"：中心透亮、四周向外压暗的圆形柔光（世界坐标内绘制，随相机缩放）。
-   —— 不再是方形框；按 F 聚焦即淡入显现，进入超聚焦时进一步收拢加强。
-   强度由 focusTransition（聚焦）与 fm._superT（超聚焦）两个动画量驱动。 */
-function drawFocusSpotlight(){
-  const fm=state.focusMode;if(!fm)return;
-  const z=state.camera.zoom;
-  const it=state.items.find(i=>i.id===fm.id);if(!it)return;
-  let cx,cy,r0;
-  if(fm.super&&fm.superBox){
-    const b=fm.superBox;cx=b.x+b.w/2;cy=b.y+b.h/2;r0=Math.min(b.w,b.h)*0.58;
-  }else{
-    const b=itemBounds(it);if(!b)return;
-    cx=b.x+b.w/2;cy=b.y+b.h/2;
-    r0=Math.max(b.w,b.h)*0.8+170;   /* 聚焦时圈更大，只做氛围，不切割画面 */
-  }
-  const t1=(typeof focusTransition==="number"?focusTransition:1);
-  const t2=fm._superT||0;
-  const alpha=0.13*t1+0.30*t2;      /* 聚焦只是轻微变化，超聚焦才是明显的聚光 */
+/* 聚焦 / 超聚焦的"舞台灯"：中心透亮、四周向外压暗的圆形柔光（画在元素之下，世界坐标）。
+   —— 按 F 聚焦即淡入（轻微），进入超聚焦进一步收拢加强；退出由 _spotFade 残影淡出。
+   中心/半径/强度都随动画量平滑插值：t1=focusTransition（聚焦）、t2=fm._superT（超聚焦）。 */
+function _spotDraw(cx,cy,r0,alpha){
   if(alpha<=0.002)return;
-  const rr=Math.max(90,r0*(1-0.22*t2));  /* 超聚焦再往里收一点 */
-  const g=ctx.createRadialGradient(cx,cy,rr*0.5,cx,cy,rr*2.3);
+  const g=ctx.createRadialGradient(cx,cy,r0*0.5,cx,cy,r0*2.3);
   g.addColorStop(0,"rgba(8,12,22,0)");
   g.addColorStop(0.5,"rgba(8,12,22,"+(alpha*0.42).toFixed(3)+")");
   g.addColorStop(1,"rgba(8,12,22,"+alpha.toFixed(3)+")");
   ctx.save();
   ctx.fillStyle=g;
-  ctx.fillRect(state.camera.x,state.camera.y,W/z,H/z);
+  ctx.fillRect(state.camera.x,state.camera.y,W/state.camera.zoom,H/state.camera.zoom);
   ctx.restore();
+}
+function drawFocusSpotlight(){
+  const fm=state.focusMode;
+  if(fm){
+    const it=state.items.find(i=>i.id===fm.id);if(!it)return;
+    const ib=itemBounds(it);if(!ib)return;
+    /* 聚焦基准：圈大、只做氛围 */
+    const fx=ib.x+ib.w/2, fy=ib.y+ib.h/2, fr=Math.max(ib.w,ib.h)*0.8+170;
+    /* 超聚焦基准：收拢到邻域范围 */
+    let sx=fx,sy=fy,sr=fr;
+    if(fm.superBox){const b=fm.superBox;sx=b.x+b.w/2;sy=b.y+b.h/2;sr=Math.min(b.w,b.h)*0.58;}
+    const t1=(typeof focusTransition==="number"?focusTransition:1);
+    const t2=fm._superT||0;
+    const cx=fx+(sx-fx)*t2, cy=fy+(sy-fy)*t2, r0=fr+(sr-fr)*t2;
+    _spotDraw(cx,cy,Math.max(90,r0),0.10*t1+0.19*t2);   /* 整体调淡，只做氛围 */
+    return;
+  }
+  const s=state._spotFade;
+  if(s&&s.t>0.01)_spotDraw(s.cx,s.cy,s.r0,0.10*s.t);
+}
+/* 退出聚焦时：把当前聚光中心/半径记成"残影"，随后淡出（避免遮罩瞬间消失） */
+let _spotFadeGen=0;
+function startFocusSpotFade(){
+  const fm=state.focusMode;if(!fm)return;
+  const it=state.items.find(i=>i.id===fm.id);if(!it)return;
+  const ib=itemBounds(it);if(!ib)return;
+  let cx=ib.x+ib.w/2, cy=ib.y+ib.h/2, r0=Math.max(ib.w,ib.h)*0.8+170;
+  const t2=fm._superT||0;
+  if(fm.superBox){const b=fm.superBox;cx=cx+(b.x+b.w/2-cx)*t2;cy=cy+(b.y+b.h/2-cy)*t2;r0=r0+(Math.min(b.w,b.h)*0.58-r0)*t2;}
+  state._spotFade={cx:cx,cy:cy,r0:Math.max(90,r0),t:1};
+  const gen=++_spotFadeGen, t0=performance.now();
+  function step(now){
+    if(gen!==_spotFadeGen)return;
+    const p=Math.min(1,(now-t0)/300);
+    if(!state._spotFade||gen!==_spotFadeGen)return;
+    state._spotFade.t=1-p;
+    render();
+    if(p<1)requestAnimationFrame(step);else state._spotFade=null;
+  }
+  requestAnimationFrame(step);
 }
 function updateFocusHud(){
   if(!state.focusMode){focusHud.classList.remove("show");return;}
