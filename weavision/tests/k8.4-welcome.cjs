@@ -2,7 +2,7 @@
 const {app,BrowserWindow,ipcMain}=require('electron');
 const fs=require('fs'),path=require('path'),os=require('os');
 const root=path.resolve(__dirname,'../..'),resources=process.argv[2];
-const html=resources?path.join(resources,'index.html'):path.join(root,'2-新版本及其素材/织见-思维关系板-K6.html');
+const html=resources?path.join(resources,'index.html'):path.join(root,'weavision/织见-思维关系板-K6.html');
 const markup=fs.readFileSync(html,'utf8').split('<!-- G1 启动动画 -->')[1].split('<header')[0];
 const out=path.join(root,'out/k8.4-validation');fs.mkdirSync(out,{recursive:true});
 app.setPath('userData',fs.mkdtempSync(path.join(os.tmpdir(),'zhijian-welcome-')));
@@ -10,7 +10,7 @@ app.whenReady().then(async()=>{
  let win;
  try{
   for(const [key,value] of Object.entries({'get-version':'0.10.4','get-system-theme':false,'get-open-file':null,'set-taskbar-icon':{ok:true},'set-fantin-icon':{ok:true},'quit-modal-ready':true}))ipcMain.handle(key,()=>value);
-  win=new BrowserWindow({show:false,width:1440,height:900,webPreferences:{offscreen:true,backgroundThrottling:false,preload:resources?path.join(resources,'app.asar/preload.js'):path.join(root,'2-新版本及其素材/desktop/electron/preload.js'),contextIsolation:true}});
+  win=new BrowserWindow({show:false,width:1440,height:900,webPreferences:{offscreen:true,backgroundThrottling:false,preload:resources?path.join(resources,'app.asar/preload.js'):path.join(root,'weavision/desktop/electron/preload.js'),contextIsolation:true}});
   await win.loadFile(html);
   await win.webContents.executeJavaScript(`(async()=>{while(document.getElementById('splashScreen'))await new Promise(r=>setTimeout(r,20));document.querySelector('#licenseModal button')?.click();})()`);
   const result=[];

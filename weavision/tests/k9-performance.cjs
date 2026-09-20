@@ -6,8 +6,8 @@ app.whenReady().then(async()=>{
  let win;
  try{
   for(const [key,value] of Object.entries({'get-version':'0.11.0','get-system-theme':false,'get-open-file':null,'set-taskbar-icon':{ok:true},'set-fantin-icon':{ok:true},'quit-modal-ready':true}))ipcMain.handle(key,()=>value);
-  win=new BrowserWindow({show:false,width:1440,height:900,webPreferences:{offscreen:true,backgroundThrottling:false,preload:path.join(root,'2-新版本及其素材/desktop/electron/preload.js'),contextIsolation:true}});
-  await win.loadFile(path.join(root,'2-新版本及其素材/织见-思维关系板-K6.html'));
+  win=new BrowserWindow({show:false,width:1440,height:900,webPreferences:{offscreen:true,backgroundThrottling:false,preload:path.join(root,'weavision/desktop/electron/preload.js'),contextIsolation:true}});
+  await win.loadFile(path.join(root,'weavision/织见-思维关系板-K6.html'));
   const results=await win.webContents.executeJavaScript(`(async()=>{
    const wait=ms=>new Promise(r=>setTimeout(r,ms));while(document.getElementById('splashScreen'))await wait(20);document.querySelector('#licenseModal button')?.click();await wait(350);
    const results=[];const p=createProject('K9 固定性能样本'),c=curCanvas();
