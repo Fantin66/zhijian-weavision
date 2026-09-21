@@ -2,6 +2,24 @@
 (function(root){
   "use strict";
   const clone=value=>JSON.parse(JSON.stringify(value,(key,v)=>["thumb","blob","_url"].includes(key)?undefined:v));
+  /* 导出时附件的磁盘文件名：直接用"材料资源库里显示的原名"，方便导出后文件夹里一眼认得。
+     · 去掉 Windows 非法字符（保留中文与空格）
+     · 重名时追加 " (2)"、(" (3)")…，保证包内唯一
+     · 兜底：原名不可用时退回 asset-{index} */
+  const _EXT_RE=/\.[a-zA-Z0-9]{1,12}$/;
+  function _safePackageName(name,index,usedNames){
+    let raw=String(name==null?"":name);
+    let base=raw.replace(/[\\/:*?"<>|\u0000-\u001F]/g,"_").replace(/^\.+/,"").trim();
+    if(!base)base="asset-"+index;
+    if(base.length>120){const m=_EXT_RE.exec(base),ext=m?m[0]:"";base=base.slice(0,120-ext.length)+ext;}
+    if(usedNames.has(base)){
+      const m=_EXT_RE.exec(base),ext=m?m[0]:"",stem=ext?base.slice(0,base.length-ext.length):base;
+      let k=2;while(usedNames.has(stem+" ("+k+")"+ext))k++;
+      base=stem+" ("+k+")"+ext;
+    }
+    usedNames.add(base);
+    return base;
+  }
   function encode(project,canvasId){
     const canvases=canvasId?project.canvases.filter(c=>c.id===canvasId):project.canvases;
     if(!canvases.length)throw new Error("没有可导出的画布");
@@ -11,10 +29,11 @@
     const files=project.files.filter(f=>!canvasId||used.has(f.id));
     for(const id of used)if(!project.files.some(f=>f.id===id))throw new Error("附件记录缺失："+id);
     const selected=new Set(canvases.map(c=>c.id));
+    const usedNames=new Set();   /* 导出附件文件名去重 */
     const copies=clone(canvases);
     for(const c of copies)for(const i of c.items||[]){const j=typeof i.jumpTo==="string"?{canvasId:i.jumpTo}:i.jumpTo;if(j&&(!selected.has(j.canvasId)||(j.projectId&&j.projectId!==project.id))){i.externalJump={...j,projectId:j.projectId||project.id,projectName:j.projectName||(j.projectId&&j.projectId!==project.id?null:project.name),canvasName:project.canvases.find(x=>x.id===j.canvasId)?.name||j.canvasName||null,status:"unresolved"};i.jumpTo=null;}}
     return {schemaVersion:3,version:"L1",sourceProjectId:project.id,readingPaths:clone(project.readingPaths||[]),type:canvasId?"canvas":"project",exportedAt:Date.now(),projectName:project.name,
-      folders:clone(project.folders||[]),canvases:copies,fileMeta:files.map((f,index)=>({oldId:f.id,name:f.name,packageName:"asset-"+index+"-"+String(f.id).replace(/[^a-zA-Z0-9_-]/g,"_")+(/\.[a-zA-Z0-9]{1,12}$/.exec(f.name)||[""])[0],size:f.blob?.size??f.size,kind:f.kind,mime:f.mime,url:f.url||null,folderId:f.folderId||null,created:f.created,sourceOnly:!!f.sourceOnly||!!f.aiSource&&!f.blob&&f.size===0,aiSource:f.aiSource||null,contentHash:f.contentHash||null}))};
+      folders:clone(project.folders||[]),canvases:copies,fileMeta:files.map((f,index)=>({oldId:f.id,name:f.name,packageName:_safePackageName(f.name,index,usedNames),size:f.blob?.size??f.size,kind:f.kind,mime:f.mime,url:f.url||null,folderId:f.folderId||null,created:f.created,sourceOnly:!!f.sourceOnly||!!f.aiSource&&!f.blob&&f.size===0,aiSource:f.aiSource||null,contentHash:f.contentHash||null}))};
   }
   function decode(structure,attachments,next){
     if(!structure||!Array.isArray(structure.canvases)||!structure.canvases.length)throw new Error("数据格式不正确：缺少画布");
