@@ -213,8 +213,8 @@ function _superNeighbors(centerId){
   return list;
 }
 /* 去重叠：以中心为锚，迭代把相互遮盖的盒子推开（lock 的盒子不动） */
-function _separateBoxes(boxes){
-  const pad=26;
+function _separateBoxes(boxes,pad){
+  if(pad===undefined)pad=26;
   for(let iter=0;iter<60;iter++){
     let moved=false;
     for(let i=0;i<boxes.length;i++){
@@ -292,14 +292,19 @@ function _superMoves(){
     return {n,ux:dx/d,uy:dy/d,d,b};
   });
   const maxD=Math.max.apply(null,info.map(o=>o.d));
-  const target=clamp(maxD*0.55,240,560);
+  /* 目标收拢半径：以"占据画面约 3/4 区域"为基准，而不是一味往里挤——
+     元素越多/越大，所需最小半径也越大；否则连线被压得过短，线上的批注会叠在一起 */
+  const _z=state.camera.zoom;
+  const viewR=Math.min(W/_z,H/_z)*0.375;
+  const denseR=Math.sqrt(others.length)*150;
+  const target=clamp(Math.max(viewR,denseR),380,1600);
   const moves=info.map(o=>{
     const nd=Math.min(o.d,target);
     return {it:o.n,fx:o.n.x,fy:o.n.y,tx:cx+o.ux*nd-o.b.w/2,ty:cy+o.uy*nd-o.b.h/2};
   });
   const boxes=[{it:center,x:cb.x,y:cb.y,w:cb.w,h:cb.h,lock:true}]
     .concat(moves.map(m=>({it:m.it,x:m.tx,y:m.ty,w:itemBounds(m.it).w,h:itemBounds(m.it).h})));
-  _separateBoxes(boxes);
+  _separateBoxes(boxes,72);   /* 72px 间隙：给连线上的批注留出可读空间 */
   moves.forEach((m,i)=>{m.tx=Math.round(boxes[i+1].x);m.ty=Math.round(boxes[i+1].y);});
   return {center,others,moves};
 }
