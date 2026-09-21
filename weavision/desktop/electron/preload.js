@@ -68,9 +68,6 @@ contextBridge.exposeInMainWorld("electronAPI", {
   /* G8: 文件关联 — 监听 second-instance 发来的打开事件 */
   onOpenFantinFile: (cb) => ipcRenderer.on("open-fantin-file", cb),
 
-  /* K9: 托盘菜单「设置」→ 渲染层打开设置面板 */
-  onTrayOpenSettings: (cb) => ipcRenderer.on("tray-open-settings", cb),
-
   /* G11: 设置任务栏图标风格 (preset=1/2/3, style="flat"|"clean") */
   setTaskbarIcon: (data) => ipcRenderer.invoke("set-taskbar-icon", data),
 

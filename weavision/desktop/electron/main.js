@@ -1,4 +1,4 @@
-const { app, BrowserWindow, shell, nativeTheme, ipcMain, dialog, Menu, nativeImage, Tray } = require("electron");
+const { app, BrowserWindow, shell, nativeTheme, ipcMain, dialog, Menu, nativeImage } = require("electron");
 const path = require("path");
 const fs = require("fs");
 const windowsIcons = require("./windows-icons");
@@ -166,55 +166,6 @@ function installFantinSkill() {
   }
 }
 
-/* K9: 常驻系统托盘图标 —— 窗口被切到别的桌面/最小化时，也能一眼看出应用仍在运行。
-   右键菜单：显示主窗口 / 设置 / 退出织见；双击图标回到主窗口。 */
-let tray = null;
-/* 托盘图标：取拟物风格的应用图标（fantin-icon）预渲染好的各档 PNG，
-   随系统 DPI 命中 16 / 20 / 24 / 32 —— 不在运行时缩放，避免发糊。 */
-function trayIconImage() {
-  const dir = app.isPackaged ? path.join(process.resourcesPath, "icons") : path.join(__dirname, "icons");
-  const reps = [
-    { scaleFactor: 1.0, size: 16 },
-    { scaleFactor: 1.25, size: 20 },
-    { scaleFactor: 1.5, size: 24 },
-    { scaleFactor: 2.0, size: 32 }
-  ];
-  try {
-    const img = nativeImage.createEmpty();
-    let added = 0;
-    for (const r of reps) {
-      const p = path.join(dir, "tray-" + r.size + ".png");
-      if (!fs.existsSync(p)) continue;
-      img.addRepresentation({ scaleFactor: r.scaleFactor, width: r.size, height: r.size, buffer: fs.readFileSync(p) });
-      added++;
-    }
-    return added ? img : null;
-  } catch (e) { return null; }
-}
-function showMainWindow() {
-  if (!win || win.isDestroyed()) { createWindow(); return; }
-  if (win.isMinimized()) win.restore();
-  win.show(); win.focus();
-}
-function createTray() {
-  if (tray) return;
-  try {
-    const img = trayIconImage();
-    if (!img) return;
-    tray = new Tray(img);
-    tray.setToolTip("织见 Weavision");
-    tray.setContextMenu(Menu.buildFromTemplate([
-      { label: "显示主窗口", click() { showMainWindow(); } },
-      { label: "设置", click() {
-          showMainWindow();
-          if (win && !win.isDestroyed()) win.webContents.send("tray-open-settings");
-      } },
-      { type: "separator" },
-      { label: "退出织见", click() { isQuitting = true; app.quit(); } }
-    ]));
-    tray.on("double-click", () => showMainWindow());
-  } catch (e) { /* 托盘不可用时静默降级，不影响主功能 */ }
-}
 function createWindow() {
   win = new BrowserWindow({
     width: 1440,
@@ -722,7 +673,6 @@ if (!gotLock) {
     /* G8: 检查 argv 中是否有 .fantin 文件 */
     pendingFantinPath = extractFantinFromArgv(process.argv);
     createWindow();
-    createTray();   /* K9: 常驻托盘图标（右键：显示主窗口 / 设置 / 退出） */
     app.on("activate", () => {
       if (BrowserWindow.getAllWindows().length === 0) createWindow();
     });

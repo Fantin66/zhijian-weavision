@@ -1459,10 +1459,6 @@ function init(){
         setTimeout(function(){doImport("fantin",fp);},500);
       }
     });
-    /* K9: 托盘菜单「设置」→ 打开设置面板 */
-    if(window.electronAPI.onTrayOpenSettings){
-      window.electronAPI.onTrayOpenSettings(function(){ if(typeof showSettings==="function")showSettings(); });
-    }
     /* 监听 second-instance（应用已运行时双击 .fantin） */
     if(window.electronAPI.onOpenFantinFile){
       window.electronAPI.onOpenFantinFile(function(){
