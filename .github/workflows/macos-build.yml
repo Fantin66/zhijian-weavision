@@ -171,7 +171,12 @@ jobs:
         run: npm ci
 
       - name: Build Windows installers
-        run: npx electron-builder --win nsis portable -c.directories.output=../../../dist-win
+        shell: bash
+        # Windows 上 electron-builder 对 ../../../ 这类相对 output 的解析与 mac 不同
+        # （会少上溯一级），直接用绝对路径最稳
+        run: |
+          npx electron-builder --win nsis portable \
+            -c.directories.output="$GITHUB_WORKSPACE/dist-win"
 
       - name: Publish to Release
         if: always()
