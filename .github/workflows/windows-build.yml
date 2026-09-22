@@ -1,0 +1,113 @@
+name: Build Windows
+
+# 只构建 Windows 安装包（macOS 构建按需停用，恢复方法见文件末尾注释块）。
+# 手动触发（Actions 页面 Run workflow），或推送 v* 标签时自动构建。
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - 'v*'
+
+# 需要 write 权限才能把安装包挂到 Release 上
+permissions:
+  contents: write
+
+jobs:
+  build-windows:
+    name: Windows
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: weavision/desktop/electron
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Show environment
+        shell: bash
+        run: |
+          node -v
+          npm -v
+
+      - name: Install dependencies
+        run: npm ci
+
+      # 输出目录必须用绝对路径：相对路径 ../../../dist-win 在 Windows runner 上
+      # 只会向上解析一级，落到 weavision/desktop/ 导致 ENOENT。
+      - name: Build Windows installers
+        shell: bash
+        run: |
+          npx electron-builder --win nsis portable \
+            -c.directories.output="$GITHUB_WORKSPACE/dist-win"
+
+      - name: List output
+        working-directory: .
+        shell: bash
+        run: ls -la dist-win || true
+
+      - name: Publish to Release
+        if: always()
+        working-directory: .
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          for f in dist-win/*.exe dist-win/*.blockmap; do
+            [ -f "$f" ] || continue
+            echo "uploading $f"
+            gh release upload v1.1.0 "$f" --clobber -R "${{ github.repository }}" \
+              || echo "上传失败（不阻断构建）：$f"
+          done
+          echo "----- Release 资产 -----"
+          gh release view v1.1.0 -R "${{ github.repository }}" --json assets \
+            --jq '.assets[] | .name + "   " + (.size|tostring)' || true
+
+# ============================================================
+# macOS 构建（暂未启用；需要时把下面整块移回 jobs: 下）
+#
+#  build-macos:
+#    name: macOS ${{ matrix.arch }}
+#    runs-on: macos-latest
+#    strategy:
+#      fail-fast: false
+#      matrix:
+#        arch: [arm64, x64]
+#    defaults:
+#      run:
+#        working-directory: weavision/desktop/electron
+#    steps:
+#      - uses: actions/checkout@v4
+#      - uses: actions/setup-node@v4
+#        with: { node-version: '22' }
+#      - name: Install dependencies
+#        run: npm ci
+#      - name: Build DMG (unsigned)
+#        env:
+#          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+#        run: |
+#          npx electron-builder --mac dmg --${{ matrix.arch }} \
+#            -c.directories.output="$GITHUB_WORKSPACE/dist-mac" \
+#            -c.mac.identity=null
+#      - name: Publish dmg to Release
+#        working-directory: .
+#        env:
+#          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+#        run: |
+#          for f in dist-mac/*.dmg; do
+#            [ -f "$f" ] || continue
+#            case "$f" in
+#              *arm64*) NAME="zhijian-weavision-mac-arm64.dmg" ;;
+#              *)       NAME="zhijian-weavision-mac-x64.dmg" ;;
+#            esac
+#            cp "$f" "/tmp/$NAME"
+#            gh release upload v1.1.0 "/tmp/$NAME" --clobber -R "${{ github.repository }}"
+#          done
+#
+# 说明：mac 端此前已跑通（含 Info.plist 校验与 CDP 自检截图），
+#       dmg 也已在 Release 上（zhijian-weavision-mac-arm64.dmg / -x64.dmg）。
+# ============================================================
