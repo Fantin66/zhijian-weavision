@@ -156,6 +156,13 @@ button{font-family:inherit;cursor:pointer}
    —— 隐藏自绘的三色按钮，并给顶栏左侧留出红绿灯所占的空间 */
 [data-platform="darwin"] .win-controls{display:none!important}
 [data-platform="darwin"] #topbar{padding-left:84px}
+/* macOS 窄窗口：顶栏内容 + 红绿灯一起放不下时收紧留白与按钮内边距。
+   （红绿灯实测横向占约 68px，72px 留白仍有余量；配合 menu-tab / searchWrap 收紧可省出约 70px） */
+@media (max-width:1200px){
+  [data-platform="darwin"] #topbar{padding-left:72px;padding-right:8px;gap:2px}
+  [data-platform="darwin"] #topbar .menu-tab{padding:0 8px}
+  [data-platform="darwin"] #searchWrap{width:126px}
+}
 .win-btn{width:14px;height:14px;border-radius:50%;border:none;cursor:pointer;padding:0;position:relative;transition:transform .2s cubic-bezier(.2,.8,.2,1),box-shadow .2s ease}
 .win-btn:hover{transform:scale(1.3);box-shadow:0 0 0 3px rgba(255,255,255,.12)}
 .win-btn:active{transform:scale(1.08)}
