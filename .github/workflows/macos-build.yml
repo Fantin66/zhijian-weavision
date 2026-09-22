@@ -59,3 +59,48 @@ jobs:
           name: zhijian-weavision-mac-${{ matrix.arch }}
           path: dist-mac/*.dmg
           if-no-files-found: error
+
+      # ===== 以下是"把 CI 当云 Mac"的自检：只有 arm64 产物能在 runner 上真正运行 =====
+      - name: Verify app bundle
+        if: matrix.arch == 'arm64'
+        working-directory: .
+        run: |
+          set -e
+          APP=$(find dist-mac -maxdepth 3 -name "*.app" -type d | head -1)
+          echo "APP = $APP"
+          echo "----- 顶层结构 -----"
+          ls -la "$APP/Contents"
+          echo "----- Info.plist 关键项 -----"
+          plutil -p "$APP/Contents/Info.plist" | grep -E "CFBundleIdentifier|CFBundleDocumentTypes|CFBundleName|NSHighResolutionCapable|LSMinimumSystemVersion" || true
+          echo "----- 文件关联详情 -----"
+          plutil -extract CFBundleDocumentTypes json -o - "$APP/Contents/Info.plist" || true
+          echo "----- apps 资源 -----"
+          ls -la "$APP/Contents/Resources" | head -20
+          echo "----- 原生模块 (classic-level) -----"
+          find "$APP/Contents/Resources" -name "*.node" | head -10 || true
+          echo "----- 签名状态（预期未签名）-----"
+          codesign -dv "$APP" 2>&1 | head -5 || true
+
+      - name: Launch app and screenshot
+        if: matrix.arch == 'arm64'
+        working-directory: .
+        run: |
+          APP=$(find dist-mac -maxdepth 3 -name "*.app" -type d | head -1)
+          echo "starting $APP"
+          open "$APP" || true
+          sleep 12
+          echo "----- 进程是否存活 -----"
+          pgrep -fl "织见" || pgrep -fl Electron || echo "(未发现进程)"
+          echo "----- 截图 -----"
+          screencapture -x /tmp/mac-shot.png || echo "screencapture failed"
+          ls -la /tmp/mac-shot.png || true
+          echo "----- 系统日志里的应用报错（若有）-----"
+          log show --last 30s --predicate 'process CONTAINS "织见" OR process CONTAINS "Electron"' --style compact 2>/dev/null | tail -30 || true
+
+      - name: Upload screenshot
+        if: matrix.arch == 'arm64'
+        uses: actions/upload-artifact@v4
+        with:
+          name: mac-run-screenshot
+          path: /tmp/mac-shot.png
+          if-no-files-found: warn
