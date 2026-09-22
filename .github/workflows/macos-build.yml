@@ -101,6 +101,14 @@ jobs:
           node weavision/tests/ci-mac-shot.cjs 9222 /tmp/mac-shots || echo "CDP 截图失败（不阻断构建）"
           ls -la /tmp/mac-shots || true
 
+      # CDP 的 Page.captureScreenshot 只包含网页渲染层，拍不到原生窗口装饰（红绿灯）
+      # 与系统菜单栏；这里在 app 仍处于前台时再补一张整屏截图
+      - name: Full-screen capture (native traffic lights + menu bar)
+        if: matrix.arch == 'arm64'
+        run: |
+          screencapture -x /tmp/mac-shots/screen-full.png || echo "screencapture failed"
+          ls -la /tmp/mac-shots/ || true
+
       - name: App stdout/stderr tail
         if: matrix.arch == 'arm64'
         run: |

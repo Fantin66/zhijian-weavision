@@ -111,7 +111,26 @@ async function pickPage() {
   await shot("superfocus.png");
 
   /* 4. 顺手报一下窗口与顶栏尺寸，便于核对红绿灯留白是否合适 */
-  const metrics = await evalJs(`JSON.stringify({dpr:window.devicePixelRatio, w:window.innerWidth, h:window.innerHeight, topbar:document.getElementById('topbar')?document.getElementById('topbar').getBoundingClientRect().height:null, padLeft:document.getElementById('topbar')?getComputedStyle(document.getElementById('topbar')).paddingLeft:null, controls:document.querySelector('.win-controls')?getComputedStyle(document.querySelector('.win-controls')).display:null, platform:document.documentElement.dataset.platform})`);
+  /* 4. 顶栏布局体检：是否溢出（有子元素被挤出可视区）、各子元素右边界、mac 留白是否够 */
+  const metrics = await evalJs(`(()=>{
+    const tb=document.getElementById('topbar');
+    const kids=tb?[...tb.children].map(c=>({tag:(c.id||c.className||c.tagName), right:Math.round(c.getBoundingClientRect().right), w:Math.round(c.getBoundingClientRect().width), display:getComputedStyle(c).display})):null;
+    const vis=kids?kids.filter(k=>k.display!=='none'):null;
+    return JSON.stringify({
+      dpr:window.devicePixelRatio, winW:window.innerWidth, winH:window.innerHeight,
+      topbarH: tb?Math.round(tb.getBoundingClientRect().height):null,
+      padLeft: tb?getComputedStyle(tb).paddingLeft:null,
+      padRight: tb?getComputedStyle(tb).paddingRight:null,
+      topbarScrollW: tb?tb.scrollWidth:null,
+      topbarClientW: tb?tb.clientWidth:null,
+      topbarOverflow: tb?tb.scrollWidth > tb.clientWidth+1:null,
+      lastChildRight: vis&&vis.length?Math.max(...vis.map(k=>k.right)):null,
+      childCount: kids?kids.length:null,
+      hiddenChildren: kids?kids.filter(k=>k.display==='none').map(k=>k.tag):null,
+      controls: document.querySelector('.win-controls')?getComputedStyle(document.querySelector('.win-controls')).display:null,
+      platform: document.documentElement.dataset.platform
+    });
+  })()`);
   console.log("metrics =", metrics);
 
   ws.close();
