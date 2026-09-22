@@ -49,3 +49,6 @@ blob-matching.json
 
 # Local K6 build and verification artifacts
 /out/
+
+# 文档流水线中间产物（tencent-docx 的 stage1/2/3）
+/output/
