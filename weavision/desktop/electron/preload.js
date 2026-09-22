@@ -88,4 +88,7 @@ contextBridge.exposeInMainWorld("electronAPI", {
 /* 页面加载后注入桌面标记 */
 window.addEventListener("DOMContentLoaded", () => {
   document.documentElement.dataset.desktop = "electron";
+  /* 平台标记：渲染层据此适配窗口外壳
+     （macOS 用系统原生红绿灯，需隐藏自绘的三色窗口按钮并给顶栏留出左侧空间） */
+  try { document.documentElement.dataset.platform = process.platform; } catch (e) {}
 });

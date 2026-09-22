@@ -606,8 +606,9 @@ document.addEventListener("keydown",e=>{
     }
     return;
   }
-  /* 沉浸模式：F11 切换（隐藏/恢复辅助元素） */
-  if(e.key==="F11"){
+  /* 沉浸模式：F11 切换（隐藏/恢复辅助元素）
+     macOS 上 F11 被系统"显示桌面"占用，改用 Ctrl+Cmd+F（贴近 mac 的全屏习惯） */
+  if(e.key==="F11"||(e.ctrlKey&&e.metaKey&&e.key.toLowerCase()==="f")){
     e.preventDefault();
     toggleImmersive();
     return;

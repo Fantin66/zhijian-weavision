@@ -152,6 +152,10 @@ button{font-family:inherit;cursor:pointer}
 #importBtn svg,#exportBtn svg{width:16px;height:16px;color:var(--topbar-hi)}
 /* L4: 自定义窗口控制按钮 — macOS 风格红黄绿三色圆形 */
 .win-controls{display:flex;align-items:center;gap:8px;margin-left:auto;padding:0 4px 0 16px;flex:none}
+/* macOS：窗口外壳交给系统原生红绿灯（titleBarStyle:hiddenInset）
+   —— 隐藏自绘的三色按钮，并给顶栏左侧留出红绿灯所占的空间 */
+[data-platform="darwin"] .win-controls{display:none!important}
+[data-platform="darwin"] #topbar{padding-left:84px}
 .win-btn{width:14px;height:14px;border-radius:50%;border:none;cursor:pointer;padding:0;position:relative;transition:transform .2s cubic-bezier(.2,.8,.2,1),box-shadow .2s ease}
 .win-btn:hover{transform:scale(1.3);box-shadow:0 0 0 3px rgba(255,255,255,.12)}
 .win-btn:active{transform:scale(1.08)}

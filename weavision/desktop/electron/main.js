@@ -166,8 +166,40 @@ function installFantinSkill() {
   }
 }
 
+/* macOS 应用菜单：mac 上必须设置，否则 Cmd+Q / Cmd+H / Cmd+W 等系统级快捷键不生效。
+   Windows 走无边框窗口、本就没有系统菜单栏，这里直接返回不做任何事。 */
+function buildAppMenu() {
+  if (process.platform !== "darwin") return;
+  const runInPage = (js) => { if (win && !win.isDestroyed()) win.webContents.executeJavaScript(js); };
+  try {
+    Menu.setApplicationMenu(Menu.buildFromTemplate([
+      { role: "appMenu" },
+      { role: "editMenu" },
+      {
+        label: "视图",
+        submenu: [
+          {
+            label: "沉浸模式",
+            accelerator: "Control+Command+F",
+            click() { runInPage("if(typeof toggleImmersive==='function')toggleImmersive();"); }
+          },
+          { label: "全屏", role: "togglefullscreen" },
+          { type: "separator" },
+          { role: "reload" },
+          { role: "toggleDevTools" },
+          { type: "separator" },
+          { role: "resetZoom" },
+          { role: "zoomIn" },
+          { role: "zoomOut" }
+        ]
+      },
+      { role: "windowMenu" }
+    ]));
+  } catch (e) { /* 菜单不可用时静默降级，不影响主功能 */ }
+}
 function createWindow() {
-  win = new BrowserWindow({
+  const isMac = process.platform === "darwin";
+  win = new BrowserWindow(Object.assign({
     width: 1440,
     height: 900,
     minWidth: 900,
@@ -179,7 +211,12 @@ function createWindow() {
        splash 变暗——这就是"启动闪白"的第一个来源。
        #111118 / #f0f2f5 分别取自 styles.css 里 #splashScreen 的暗色/亮色背景。 */
     backgroundColor: nativeTheme.shouldUseDarkColors ? "#111118" : "#f0f2f5",
-    frame: false,
+  }, isMac
+    /* macOS：保留原生红绿灯（渲染层不再画窗口按钮），红绿灯位置与顶栏内边距对齐 */
+    ? { titleBarStyle: "hiddenInset", trafficLightPosition: { x: 16, y: 16 } }
+    /* Windows/Linux：维持无边框 + 渲染层自绘的三色窗口按钮 */
+    : { frame: false },
+  {
     webPreferences: {
       preload: path.join(__dirname, "preload.js"),
       contextIsolation: true,
@@ -187,7 +224,7 @@ function createWindow() {
       sandbox: true,
       webviewTag: false, /* H2 任务10: 代码统一用 <iframe> 不用 <webview>，关闭以省一个潜在独立进程路径 */
     },
-  });
+  }));
 
   /* G9: 打包后用 extraResources 路径，开发时用相对路径 */
   const htmlPath = app.isPackaged
@@ -206,7 +243,8 @@ function createWindow() {
     if (ALLOWED_URL.test(url)) shell.openExternal(url);
   });
 
-  win.setMenuBarVisibility(false);
+  /* macOS 的应用菜单在系统顶栏，窗口级菜单栏只在 Windows/Linux 需要隐藏 */
+  if (process.platform !== "darwin") win.setMenuBarVisibility(false);
 
   /* K8.5: 恢复立即执行——延迟 1s 会导致安装版任务栏初始图标闪烁，
      且如果用户快速操作可能与 IPC 切换产生时序冲突 */
@@ -672,6 +710,7 @@ if (!gotLock) {
   app.whenReady().then(() => {
     /* G8: 检查 argv 中是否有 .fantin 文件 */
     pendingFantinPath = extractFantinFromArgv(process.argv);
+    buildAppMenu();   /* macOS：设置应用菜单（Windows 下为空操作） */
     createWindow();
     app.on("activate", () => {
       if (BrowserWindow.getAllWindows().length === 0) createWindow();
