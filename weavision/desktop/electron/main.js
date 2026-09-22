@@ -212,8 +212,11 @@ function createWindow() {
        #111118 / #f0f2f5 分别取自 styles.css 里 #splashScreen 的暗色/亮色背景。 */
     backgroundColor: nativeTheme.shouldUseDarkColors ? "#111118" : "#f0f2f5",
   }, isMac
-    /* macOS：保留原生红绿灯（渲染层不再画窗口按钮），红绿灯位置与顶栏内边距对齐 */
-    ? { titleBarStyle: "hiddenInset", trafficLightPosition: { x: 16, y: 16 } }
+    /* macOS：保留原生红绿灯（渲染层不再画窗口按钮）。
+       位置依据：顶栏 --topbar-h 在 mac 下为 58px，窗口按钮直径约 14px，
+       令红绿灯中心落在顶栏中线（29px）→ y = 29 - 7 ≈ 22；x=16 与顶栏左内边距对齐。
+       渲染层已给顶栏留出 84px 左内边距容纳这三个按钮。 */
+    ? { titleBarStyle: "hiddenInset", trafficLightPosition: { x: 16, y: 22 } }
     /* Windows/Linux：维持无边框 + 渲染层自绘的三色窗口按钮 */
     : { frame: false },
   {
