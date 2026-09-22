@@ -159,7 +159,8 @@ button{font-family:inherit;cursor:pointer}
 /* macOS 窄窗口：顶栏内容 + 红绿灯一起放不下时收紧留白与按钮内边距。
    （红绿灯实测横向占约 68px，72px 留白仍有余量；配合 menu-tab / searchWrap 收紧可省出约 70px） */
 @media (max-width:1200px){
-  [data-platform="darwin"] #topbar{padding-left:72px;padding-right:8px;gap:2px}
+  /* gap 影响 20 个间隙，是这里最划算的一项 */
+  [data-platform="darwin"] #topbar{padding-left:72px;padding-right:8px;gap:1px}
   [data-platform="darwin"] #topbar .menu-tab{padding:0 8px}
   [data-platform="darwin"] #searchWrap{width:126px}
 }
