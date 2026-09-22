@@ -129,6 +129,8 @@ jobs:
 
       # 把 dmg 一并挂到 Release：这样用户可以直接 curl 下载，
       # 命令行下载的文件不带 com.apple.quarantine 标记，双击即可打开。
+      # 注意：gh release upload 对中文文件名处理不佳（会丢掉中文部分），
+      #       所以先复制成 ASCII 名再上传。
       - name: Publish dmg to Release
         working-directory: .
         env:
@@ -136,8 +138,13 @@ jobs:
         run: |
           for f in dist-mac/*.dmg; do
             [ -f "$f" ] || continue
-            echo "uploading $f"
-            gh release upload v1.1.0 "$f" --clobber -R "${{ github.repository }}" \
+            case "$f" in
+              *arm64*) NAME="zhijian-weavision-mac-arm64.dmg" ;;
+              *)       NAME="zhijian-weavision-mac-x64.dmg" ;;
+            esac
+            cp "$f" "/tmp/$NAME"
+            echo "uploading $f  ->  $NAME"
+            gh release upload v1.1.0 "/tmp/$NAME" --clobber -R "${{ github.repository }}" \
               || echo "上传失败（不阻断构建）：$f"
           done
           echo "----- Release 资产 -----"
