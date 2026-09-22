@@ -81,26 +81,36 @@ jobs:
           echo "----- 签名状态（预期未签名）-----"
           codesign -dv "$APP" 2>&1 | head -5 || true
 
-      - name: Launch app and screenshot
+      - name: Launch app with debug port
         if: matrix.arch == 'arm64'
         working-directory: .
         run: |
           APP=$(find dist-mac -maxdepth 3 -name "*.app" -type d | head -1)
-          echo "starting $APP"
-          open "$APP" || true
-          sleep 12
+          BIN="$APP/Contents/MacOS/$(basename "$APP" .app)"
+          echo "starting $BIN  (with CDP on 9222)"
+          "$BIN" --remote-debugging-port=9222 > /tmp/app-run.log 2>&1 &
+          echo $! > /tmp/app.pid
+          sleep 8
           echo "----- 进程是否存活 -----"
-          pgrep -fl "织见" || pgrep -fl Electron || echo "(未发现进程)"
-          echo "----- 截图 -----"
-          screencapture -x /tmp/mac-shot.png || echo "screencapture failed"
-          ls -la /tmp/mac-shot.png || true
-          echo "----- 系统日志里的应用报错（若有）-----"
-          log show --last 30s --predicate 'process CONTAINS "织见" OR process CONTAINS "Electron"' --style compact 2>/dev/null | tail -30 || true
+          pgrep -fl "织见" | head -6 || echo "(未发现进程)"
 
-      - name: Upload screenshot
+      - name: Screenshot via CDP (close modal, capture main / immersive / focus)
+        if: matrix.arch == 'arm64'
+        working-directory: .
+        run: |
+          node weavision/tests/ci-mac-shot.cjs 9222 /tmp/mac-shots || echo "CDP 截图失败（不阻断构建）"
+          ls -la /tmp/mac-shots || true
+
+      - name: App stdout/stderr tail
+        if: matrix.arch == 'arm64'
+        run: |
+          echo "----- 应用输出 -----"
+          tail -40 /tmp/app-run.log || true
+
+      - name: Upload screenshots
         if: matrix.arch == 'arm64'
         uses: actions/upload-artifact@v4
         with:
-          name: mac-run-screenshot
-          path: /tmp/mac-shot.png
+          name: mac-run-screenshots
+          path: /tmp/mac-shots/*.png
           if-no-files-found: warn
