@@ -80,19 +80,35 @@ async function pickPage() {
   await evalJs(`(()=>{ if(typeof toggleImmersive==='function')toggleImmersive(); })()`);
   await sleep(800);
 
-  /* 3. 聚焦：选中第一个元素后按 F，验证聚焦态与 HUD */
+  /* 3. 聚焦：选中第一个元素后按 F，验证聚焦态与 HUD。
+     注意 state.selected 是 **id 字符串**（见 interaction.js: state.selected=hit.id），不是数组 */
   const foc = await evalJs(`(async()=>{
     try{
       const it=(state.items||[]).find(i=>i.type==='mindNode')||(state.items||[])[0];
       if(!it) return 'no-item';
-      state.selected=[it.id];
+      state.selected=it.id;
+      state.multiSel=[];
+      if(typeof render==='function')render();
       if(typeof toggleFocus==='function')toggleFocus();
-      return 'focused';
+      return 'focused:'+it.id;
     }catch(e){ return 'err:'+e.message; }
   })()`);
   console.log("focus:", foc);
-  await sleep(1500);
+  await sleep(1800);
   await shot("focus.png");
+
+  /* 3b. 超聚焦：聚焦态下左上角 HUD 里的「进入超聚焦」按钮 */
+  const sup = await evalJs(`(async()=>{
+    try{
+      const b=document.querySelector('#focusHud .focus-super-btn')||document.querySelector('.focus-super-btn');
+      if(!b) return 'no-super-btn';
+      b.click();
+      return 'clicked';
+    }catch(e){ return 'err:'+e.message; }
+  })()`);
+  console.log("superfocus:", sup);
+  await sleep(2200);
+  await shot("superfocus.png");
 
   /* 4. 顺手报一下窗口与顶栏尺寸，便于核对红绿灯留白是否合适 */
   const metrics = await evalJs(`JSON.stringify({dpr:window.devicePixelRatio, w:window.innerWidth, h:window.innerHeight, topbar:document.getElementById('topbar')?document.getElementById('topbar').getBoundingClientRect().height:null, padLeft:document.getElementById('topbar')?getComputedStyle(document.getElementById('topbar')).paddingLeft:null, controls:document.querySelector('.win-controls')?getComputedStyle(document.querySelector('.win-controls')).display:null, platform:document.documentElement.dataset.platform})`);
