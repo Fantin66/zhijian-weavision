@@ -8,6 +8,10 @@ on:
     tags:
       - 'v*'
 
+# 需要 write 权限才能把 dmg 挂到 Release 上
+permissions:
+  contents: write
+
 jobs:
   build:
     name: macOS ${{ matrix.arch }}
@@ -122,3 +126,20 @@ jobs:
           name: mac-run-screenshots
           path: /tmp/mac-shots/*.png
           if-no-files-found: warn
+
+      # 把 dmg 一并挂到 Release：这样用户可以直接 curl 下载，
+      # 命令行下载的文件不带 com.apple.quarantine 标记，双击即可打开。
+      - name: Publish dmg to Release
+        working-directory: .
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          for f in dist-mac/*.dmg; do
+            [ -f "$f" ] || continue
+            echo "uploading $f"
+            gh release upload v1.1.0 "$f" --clobber -R "${{ github.repository }}" \
+              || echo "上传失败（不阻断构建）：$f"
+          done
+          echo "----- Release 资产 -----"
+          gh release view v1.1.0 -R "${{ github.repository }}" --json assets \
+            --jq '.assets[] | .name + "   " + (.size|tostring)' || true
