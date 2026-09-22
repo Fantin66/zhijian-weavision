@@ -150,3 +150,40 @@ jobs:
           echo "----- Release 资产 -----"
           gh release view v1.1.0 -R "${{ github.repository }}" --json assets \
             --jq '.assets[] | .name + "   " + (.size|tostring)' || true
+
+  # Windows 安装包也走 CI：本地打包常被文件占用卡住，且这样能自动挂到 Release
+  build-windows:
+    name: Windows
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: weavision/desktop/electron
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build Windows installers
+        run: npx electron-builder --win nsis portable -c.directories.output=../../../dist-win
+
+      - name: Publish to Release
+        if: always()
+        working-directory: .
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          ls -la dist-win 2>/dev/null || true
+          for f in dist-win/*.exe dist-win/*.blockmap; do
+            [ -f "$f" ] || continue
+            echo "uploading $f"
+            gh release upload v1.1.0 "$f" --clobber -R "${{ github.repository }}" \
+              || echo "上传失败（不阻断构建）：$f"
+          done

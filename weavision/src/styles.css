@@ -697,7 +697,7 @@ body.immersive #immersiveExitBtn{display:flex;align-items:center;gap:7px}
 #dockSub .ds-item::after{content:"✓";position:absolute;top:4px;right:6px;font-size:10px;color:#fff;background:var(--accent);width:16px;height:16px;border-radius:50%;display:flex;align-items:center;justify-content:center;opacity:0;transition:opacity .15s ease}
 #dockSub .ds-item.on::after{opacity:1}
 [data-theme="dark"] #dockBar{background:rgba(38,38,42,.62);border-color:rgba(255,255,255,.14);box-shadow:0 12px 34px rgba(0,0,0,.4),inset 0 1px 0 rgba(255,255,255,.1)}
-#focusHud{position:absolute;left:16px;top:16px;z-index:28;display:none;align-items:center;gap:8px;min-height:34px;padding:6px 10px 6px 12px;border:1px solid rgba(45,95,211,.17);border-left:3px solid var(--accent);border-radius:var(--radius-lg);background:rgba(255,255,255,.92);backdrop-filter:blur(8px);box-shadow:0 10px 26px rgba(15,23,42,.1),inset 0 1px 0 rgba(255,255,255,.5);animation:editorRise var(--dur-fast) var(--ease-out)}
+#focusHud{position:absolute;left:var(--hud-left,20px);top:var(--hud-top,18px);z-index:28;display:none;align-items:center;gap:8px;min-height:34px;padding:6px 10px 6px 12px;border:1px solid rgba(45,95,211,.17);border-left:3px solid var(--accent);border-radius:var(--radius-lg);background:rgba(255,255,255,.92);backdrop-filter:blur(8px);box-shadow:0 10px 26px rgba(15,23,42,.1),inset 0 1px 0 rgba(255,255,255,.5);animation:editorRise var(--dur-fast) var(--ease-out)}
 #focusHud.show{display:flex}.focus-kicker{font-size:9px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:var(--accent);font-family:"Satoshi",var(--font)}#focusHud strong{font-size:12px;color:var(--ink);max-width:130px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:600}#focusHud .focus-meta{font-size:var(--text-xs);color:var(--ink-dim);padding-left:7px;border-left:1px solid var(--card-border)}#focusHud button{height:24px;padding:0 9px;border:none;border-radius:var(--radius-sm);background:var(--accent-soft);color:var(--accent);font:600 11px var(--font);cursor:pointer;transition:background var(--dur-fast) ease,transform var(--dur-fast) ease}#focusHud button:hover{background:rgba(45,95,211,.18);transform:translateY(-1px)}
 /* 深色主题：统一通过 CSS 变量覆盖，不再依赖 JS 逐条 setProperty */
 [data-theme="dark"]{
@@ -1080,7 +1080,7 @@ button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-vis
 #dockBar #dockSub{background:rgba(255,255,255,.91);border-color:rgba(255,255,255,.95);box-shadow:0 24px 64px rgba(32,52,104,.18),inset 0 1px 0 #fff}
 #dockSub .ds-item{background:rgba(248,250,255,.72);border-color:rgba(35,58,112,.06)}
 #dockSub .ds-item:hover{border-color:rgba(49,95,214,.12)}
-#focusHud{left:20px;top:18px;min-height:38px;background:rgba(255,255,255,.94);border-color:rgba(49,95,214,.16);box-shadow:0 12px 30px rgba(32,52,104,.11)}
+#focusHud{min-height:38px;background:rgba(255,255,255,.94);border-color:rgba(49,95,214,.16);box-shadow:0 12px 30px rgba(32,52,104,.11)}
 #previewLayer .pv-win,#previewLayer .pv-morph{border-color:rgba(35,58,112,.11);box-shadow:0 20px 52px rgba(32,52,104,.15),inset 0 1px 0 #fff}
 #previewLayer .pv-win .pv-head,#previewLayer .pv-morph-tools{background:linear-gradient(180deg,rgba(250,252,255,.98),rgba(240,245,255,.88));border-bottom-color:rgba(35,58,112,.09)}
 #fullscreenView{border:0;box-shadow:none}
@@ -1705,7 +1705,8 @@ body.reduced-motion #bg-l1-drift .drift-d{
 #focusHud{z-index:50}
 /* clear / glass 下画布铺满整个窗口（#board top:0），聚焦 HUD 会被顶栏(z-index:60)盖住，
    因此这里下移一个顶栏高度 */
-[data-style="clear"] #focusHud,[data-style="glass"] #focusHud{top:calc(var(--topbar-h) + 18px)}
+/* HUD 的位置改由 updateFocusHud() 按实测遮挡统一设置（--hud-left / --hud-top）：
+   以前这里只补了 top，left 仍是写死的 20px，board 全屏铺底的样式下会被侧栏压住。 */
 #focusHud .focus-super-btn{background:var(--accent-soft);border-color:rgba(45,95,211,.3);color:var(--accent);font-weight:650}
 #focusHud .focus-super-btn:hover{background:rgba(45,95,211,.16)}
 

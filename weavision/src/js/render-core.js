@@ -424,6 +424,11 @@ function updateFocusHud(){
   focusHud.querySelector(".focus-meta").textContent="直接关系 "+Math.max(0,related.size-1)+" 个";
   const _sfb=focusHud.querySelector("#superFocusBtn");
   if(_sfb){const _t=state.focusMode.super?"退出超聚焦":"进入超聚焦";if(_sfb.textContent!==_t)_sfb.textContent=_t;}
+  /* HUD 是 #board 内的绝对定位元素。board 若是全屏铺底（部分样式会覆盖 left/top），
+     它就会跑到侧栏底下——所以按实测遮挡把位置让出来，不再依赖某个样式下 board 在哪。 */
+  const _u=boardUsable();
+  focusHud.style.setProperty("--hud-left",(_u.occLeft+20)+"px");
+  focusHud.style.setProperty("--hud-top",(_u.occTop+18)+"px");
   focusHud.classList.add("show");
 }
 focusHud.querySelector("#focusExitBtn").addEventListener("click",()=>exitFocus());

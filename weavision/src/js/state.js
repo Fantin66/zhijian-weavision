@@ -389,22 +389,34 @@ function zoomAt(sx,sy,factor){
   if(zoomPctEl) zoomPctEl.textContent=Math.round(nz*100)+"%";
   requestRender();
 }
+/* 画布可视区域：不看当前是哪个样式，直接实测"顶栏/侧栏是否真的压在 board 上"。
+   · board 全屏铺底（如 clear/glass 等样式覆盖了 left/top）→ 遮挡 = 顶栏高 + 侧栏宽
+   · board 本身已避开（默认 #board{left:var(--sidebar-w);top:var(--topbar-h)}）→ 遮挡 = 0
+   这样就不再依赖"某个样式下 board 一定在哪"的假设，也不会踩写死的 270/52。 */
+function boardUsable(){
+  const br=board.getBoundingClientRect();
+  const tb=document.getElementById("topbar"),sp=document.getElementById("side-panel");
+  let occTop=0,occLeft=0;
+  if(tb){
+    const r=tb.getBoundingClientRect();
+    occTop=Math.max(0,Math.min(r.bottom,br.bottom)-Math.max(r.top,br.top));
+  }
+  if(sp&&!state.sideCollapsed&&getComputedStyle(sp).display!=="none"){
+    const r=sp.getBoundingClientRect();
+    occLeft=Math.max(0,Math.min(r.right,br.right)-Math.max(r.left,br.left));
+  }
+  return {occTop,occLeft,usableW:Math.max(1,br.width-occLeft),usableH:Math.max(1,br.height-occTop)};
+}
 function fitAll(){
   const b=boundsOfItems();if(!b) return;
   const pad=80;
-  /* L1.5d: 只 clear/glass 画布全屏铺底才排除上栏左栏；其他样式 board 已退在左栏右，W/H 本就排除，不重复排除 */
-  if(state.stylePreset==="glass"||state.stylePreset==="clear"){
-    const sw=state.sideCollapsed?0:270,th=52;
-    const z=clamp(Math.min(((W-sw)-pad*2)/Math.max(1,b.w),((H-th)-pad*2)/Math.max(1,b.h)),0.15,1.6);
-    const tx=b.x-(((W+sw)/z-b.w)/2);
-    const ty=b.y-(((H+th)/z-b.h)/2);
-    animateCamera(tx,ty,z);
-  }else{
-    const z=clamp(Math.min((W-pad*2)/Math.max(1,b.w),(H-pad*2)/Math.max(1,b.h)),0.15,1.6);
-    const tx=b.x-((W/z-b.w)/2);
-    const ty=b.y-((H/z-b.h)/2);
-    animateCamera(tx,ty,z);
-  }
+  /* 统一按实测可用区域计算，让内容居中于"没被遮挡的那块" */
+  const u=boardUsable();
+  const z=clamp(Math.min((u.usableW-pad*2)/Math.max(1,b.w),(u.usableH-pad*2)/Math.max(1,b.h)),0.15,1.6);
+  const cx=u.occLeft+u.usableW/2, cy=u.occTop+u.usableH/2;
+  const tx=b.x-(cx/z-b.w/2);
+  const ty=b.y-(cy/z-b.h/2);
+  animateCamera(tx,ty,z);
 }
 function boundsOfItems(){
   let b=null;
