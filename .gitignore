@@ -1,0 +1,54 @@
+# Dependencies
+node_modules/
+
+# Build output
+发行版/
+*.exe
+*.blockmap
+
+# Electron cache
+cache/
+Cache/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Mimosa reports
+**/.mimosa/
+
+# Tool directories
+.zcode/
+.v2c/
+.video_agent/
+.build-patch-weavision/
+
+# Python cache
+__pycache__/
+*.pyc
+
+# Temp logs
+*.log
+
+# Debug backups
+*.bak
+
+# Recovery temp files
+*.fantin
+board-state-*.json
+desktop-state.json
+blob-matching.json
+
+# WorkBuddy
+.workbuddy/
+
+# Local K6 build and verification artifacts
+/out/
+
+# 文档流水线中间产物（tencent-docx 的 stage1/2/3）
+/output/

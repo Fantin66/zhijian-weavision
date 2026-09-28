@@ -1,0 +1,105 @@
+{
+  "name": "zhijian-weavision",
+  "version": "1.0.0",
+  "description": "织见 · 思维关系板 — Desktop App (v1.0.0)",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "build": "electron-builder",
+    "build:portable": "electron-builder --win portable",
+    "build:nsis": "electron-builder --win nsis",
+    "prebuild": "node ../../scripts/build-ai-guide.cjs",
+    "prebuild:portable": "node ../../scripts/build-ai-guide.cjs",
+    "prebuild:nsis": "node ../../scripts/build-ai-guide.cjs"
+  },
+  "build": {
+    "appId": "com.weavision.zhijian",
+    "productName": "织见",
+    "copyright": "Copyright (c) 2026 Fantin",
+    "files": [
+      "main.js",
+      "preload.js",
+      "icon.png",
+      "package-worker.js",
+      "package-ipc.js",
+      "windows-icons.js",
+      "package-stream.js",
+      "package-stream-worker.js",
+      "skill-install.js",
+      "doc-extract.js"
+    ],
+    "extraResources": [
+      {
+        "from": "../../index.html",
+        "to": "index.html"
+      },
+      {
+        "from": "../../src",
+        "to": "src",
+        "filter": [
+          "**/*",
+          "!**/.mimosa/**"
+        ]
+      },
+      {
+        "from": "../../../.agents/skills/zhijian-ai",
+        "to": ".agents/skills/zhijian-ai",
+        "filter": [
+          "**/*"
+        ]
+      },
+      {
+        "from": "icons",
+        "to": "icons",
+        "filter": [
+          "*.png",
+          "*.ico"
+        ]
+      }
+    ],
+    "directories": {
+      "output": "../../../发行版/v1.0.0"
+    },
+    "fileAssociations": [
+      {
+        "ext": "fantin",
+        "name": "织见画板",
+        "description": "织见思维关系板导出文件",
+        "icon": "icons/fantin-2.ico",
+        "role": "Editor"
+      }
+    ],
+    "win": {
+      "target": [
+        "nsis",
+        "portable"
+      ],
+      "icon": "icons/clean-3.png"
+    },
+    "mac": {
+      "target": "dmg",
+      "icon": "icon.png"
+    },
+    "nsis": {
+      "artifactName": "zhijian-weavision-setup-${version}.exe",
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "织见"
+    },
+    "portable": {
+      "artifactName": "zhijian-weavision-portable-${version}.exe"
+    }
+  },
+  "devDependencies": {
+    "electron": "^31.7.7",
+    "electron-builder": "^24.0.0"
+  },
+  "dependencies": {
+    "adm-zip": "^0.6.0",
+    "archiver": "5.3.2",
+    "level": "^10.0.0",
+    "yauzl": "2.10.0"
+  }
+}
